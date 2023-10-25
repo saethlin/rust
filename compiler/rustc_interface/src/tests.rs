@@ -823,6 +823,7 @@ fn test_unstable_options_tracking_hash() {
     tracked!(packed_bundled_libs, true);
     tracked!(panic_abort_tests, true);
     tracked!(panic_in_drop, PanicStrategy::Abort);
+    tracked!(panic_is_ub, false);
     tracked!(
         patchable_function_entry,
         PatchableFunctionEntry::from_total_and_prefix_nops(10, 5)

@@ -828,6 +828,19 @@ impl<'a, 'tcx, Bx: BuilderMethods<'a, 'tcx>> FunctionCx<'a, 'tcx, Bx> {
         fn_span: Span,
         mergeable_succ: bool,
     ) -> MergingSucc {
+        let lang_items = bx.tcx().lang_items();
+        let mut panics = Vec::new();
+        for p in [
+            lang_items.panic_fn(),
+            lang_items.panic_fmt(),
+            lang_items.panic_nounwind(),
+            lang_items.panic_bounds_check_fn(),
+            lang_items.panic_impl(),
+        ] {
+            if let Some(d) = p {
+                panics.push(d);
+            }
+        }
         let source_info = terminator.source_info;
         let span = source_info.span;
 
@@ -835,19 +848,25 @@ impl<'a, 'tcx, Bx: BuilderMethods<'a, 'tcx>> FunctionCx<'a, 'tcx, Bx> {
         let callee = self.codegen_operand(bx, func);
 
         let (instance, mut llfn) = match *callee.layout.ty.kind() {
-            ty::FnDef(def_id, args) => (
-                Some(
-                    ty::Instance::expect_resolve(
-                        bx.tcx(),
-                        ty::ParamEnv::reveal_all(),
-                        def_id,
-                        args,
-                        fn_span,
-                    )
-                    .polymorphize(bx.tcx()),
-                ),
-                None,
-            ),
+            ty::FnDef(def_id, args) => {
+                if bx.tcx().sess.opts.unstable_opts.panic_is_ub && panics.contains(&def_id) {
+                    bx.unreachable();
+                    return MergingSucc::False;
+                }
+                (
+                    Some(
+                        ty::Instance::expect_resolve(
+                            bx.tcx(),
+                            ty::ParamEnv::reveal_all(),
+                            def_id,
+                            args,
+                            fn_span,
+                        )
+                        .polymorphize(bx.tcx()),
+                    ),
+                    None,
+                )
+            }
             ty::FnPtr(..) => (None, Some(callee.immediate())),
             _ => bug!("{} is not callable", callee.layout.ty),
         };
