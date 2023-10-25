@@ -2506,6 +2506,8 @@ options! {
         "support compiling tests with panic=abort (default: no)"),
     panic_in_drop: PanicStrategy = (PanicStrategy::Unwind, parse_panic_strategy, [TRACKED],
         "panic strategy for panics in drops"),
+    panic_is_ub: bool = (false, parse_bool, [TRACKED],
+        "turn all panics into UB. NOTE: this is incredibly unsound (default: no)"),
     parse_crate_root_only: bool = (false, parse_bool, [UNTRACKED],
         "parse the crate root file only; do not parse other files, compile, assemble, or link \
         (default: no)"),

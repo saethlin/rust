@@ -727,6 +727,11 @@ impl<'a, 'tcx, Bx: BuilderMethods<'a, 'tcx>> FunctionCx<'a, 'tcx, Bx> {
         bx.switch_to_block(panic_block);
         self.set_debug_loc(bx, terminator.source_info);
 
+        if bx.tcx().sess.opts.unstable_opts.panic_is_ub {
+            bx.unreachable();
+            return MergingSucc::False;
+        }
+
         // Get the location information.
         let location = self.get_caller_location(bx, terminator.source_info).immediate();
 
