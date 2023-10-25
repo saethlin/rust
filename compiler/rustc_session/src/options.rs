@@ -1857,6 +1857,8 @@ options! {
         "support compiling tests with panic=abort (default: no)"),
     panic_in_drop: PanicStrategy = (PanicStrategy::Unwind, parse_panic_strategy, [TRACKED],
         "panic strategy for panics in drops"),
+    panic_is_ub: bool = (true, parse_bool, [TRACKED],
+        "turn all panics into UB. NOTE: this is incredibly unsound (default: no)"),
     parse_only: bool = (false, parse_bool, [UNTRACKED],
         "parse only; do not compile, assemble, or link (default: no)"),
     plt: Option<bool> = (None, parse_opt_bool, [TRACKED],
