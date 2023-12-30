@@ -1636,7 +1636,7 @@ impl<'a, 'tcx> EncodeContext<'a, 'tcx> {
         }
 
         let tcx = self.tcx;
-        let reachable_set = tcx.reachable_set(());
+        let reachable_set = &tcx.reachable_set(()).0;
 
         let keys_and_jobs = tcx.mir_keys(()).iter().filter_map(|&def_id| {
             let (encode_const, encode_opt) = should_encode_mir(tcx, reachable_set, def_id);
@@ -2120,7 +2120,7 @@ fn prefetch_mir(tcx: TyCtxt<'_>) {
         return;
     }
 
-    let reachable_set = tcx.reachable_set(());
+    let reachable_set = &tcx.reachable_set(()).0;
     par_for_each_in(tcx.mir_keys(()), |&def_id| {
         let (encode_const, encode_opt) = should_encode_mir(tcx, reachable_set, def_id);
 

@@ -169,6 +169,7 @@ use rustc_data_structures::sync::{par_for_each_in, MTLock, MTLockRef};
 use rustc_hir as hir;
 use rustc_hir::def::DefKind;
 use rustc_hir::def_id::{DefId, DefIdMap, LocalDefId};
+use rustc_hir::def_id::LocalDefIdSet;
 use rustc_hir::lang_items::LangItem;
 use rustc_middle::mir::interpret::{AllocId, ErrorHandled, GlobalAlloc, Scalar};
 use rustc_middle::mir::mono::{InstantiationMode, MonoItem};
@@ -288,7 +289,10 @@ pub fn collect_crate_mono_items(
         });
     }
 
-    (visited.into_inner(), usage_map.into_inner())
+    let v = visited.into_inner();
+    debug!("{:?}", v);
+
+    (v, usage_map.into_inner())
 }
 
 // Find all non-generic items by walking the HIR. These items serve as roots to
@@ -298,14 +302,19 @@ fn collect_roots(tcx: TyCtxt<'_>, mode: MonoItemCollectionMode) -> Vec<MonoItem<
     debug!("collecting roots");
     let mut roots = Vec::new();
 
+    let runtime_used_items = &tcx.reachable_set(()).1;
     {
         let entry_fn = tcx.entry_fn(());
 
         debug!("collect_roots: entry_fn = {:?}", entry_fn);
 
-        let mut collector = RootCollector { tcx, mode, entry_fn, output: &mut roots };
+        let mut collector = RootCollector { tcx, mode, entry_fn, output: &mut roots, runtime_used_items, };
 
         let crate_items = tcx.hir_crate_items(());
+
+        for id in crate_items.items() {
+            debug!("{:?}", id);
+        }
 
         for id in crate_items.items() {
             collector.process_item(id);
@@ -317,6 +326,7 @@ fn collect_roots(tcx: TyCtxt<'_>, mode: MonoItemCollectionMode) -> Vec<MonoItem<
 
         collector.push_extra_entry_roots();
     }
+
 
     // We can only codegen items that are instantiable - items all of
     // whose predicates hold. Luckily, items that aren't instantiable
@@ -1232,9 +1242,11 @@ struct RootCollector<'a, 'tcx> {
     mode: MonoItemCollectionMode,
     output: &'a mut MonoItems<'tcx>,
     entry_fn: Option<(DefId, EntryFnType)>,
+    runtime_used_items: &'tcx LocalDefIdSet,
 }
 
 impl<'v> RootCollector<'_, 'v> {
+    #[instrument(skip(self), level = "debug")]
     fn process_item(&mut self, id: hir::ItemId) {
         match self.tcx.def_kind(id.owner_id) {
             DefKind::Enum | DefKind::Struct | DefKind::Union => {
@@ -1287,6 +1299,11 @@ impl<'v> RootCollector<'_, 'v> {
     }
 
     fn is_root(&self, def_id: LocalDefId) -> bool {
+        /*
+        if !self.runtime_used_items.contains(&def_id) {
+            return false;
+        }
+        */
         !self.tcx.generics_of(def_id).requires_monomorphization(self.tcx)
             && match self.mode {
                 MonoItemCollectionMode::Eager => true,

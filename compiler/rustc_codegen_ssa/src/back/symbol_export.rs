@@ -58,7 +58,7 @@ fn reachable_non_generics_provider(tcx: TyCtxt<'_>, _: LocalCrate) -> DefIdMap<S
         tcx.is_panic_runtime(LOCAL_CRATE) || tcx.is_compiler_builtins(LOCAL_CRATE);
 
     let mut reachable_non_generics: DefIdMap<_> = tcx
-        .reachable_set(())
+        .reachable_set(()).0
         .items()
         .filter_map(|&def_id| {
             // We want to ignore some FFI functions that are not exposed from
@@ -452,7 +452,7 @@ fn upstream_drop_glue_for_provider<'tcx>(
 }
 
 fn is_unreachable_local_definition_provider(tcx: TyCtxt<'_>, def_id: LocalDefId) -> bool {
-    !tcx.reachable_set(()).contains(&def_id)
+    !tcx.reachable_set(()).0.contains(&def_id)
 }
 
 pub fn provide(providers: &mut Providers) {

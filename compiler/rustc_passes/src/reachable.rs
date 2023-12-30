@@ -17,6 +17,7 @@ use rustc_middle::query::Providers;
 use rustc_middle::ty::{self, TyCtxt};
 use rustc_session::config::CrateType;
 use rustc_target::spec::abi::Abi;
+use rustc_data_structures::fx::FxHashSet;
 
 fn item_might_be_inlined(tcx: TyCtxt<'_>, def_id: DefId) -> bool {
     tcx.generics_of(def_id).requires_monomorphization(tcx)
@@ -31,12 +32,17 @@ struct ReachableContext<'tcx> {
     maybe_typeck_results: Option<&'tcx ty::TypeckResults<'tcx>>,
     // The set of items which must be exported in the linkage sense.
     reachable_symbols: LocalDefIdSet,
+    // The set of items which must be exported in the linkage sense.
+    runtime_reachable_symbols: LocalDefIdSet,
     // A worklist of item IDs. Each item ID in this worklist will be inlined
     // and will be scanned for further references.
     // FIXME(eddyb) benchmark if this would be faster as a `VecDeque`.
-    worklist: Vec<LocalDefId>,
+    worklist: Vec<(LocalDefId, usize)>,
     // Whether any output of this compilation is a library
     any_library: bool,
+
+    // Whether we are in an initializer for a const or static
+    const_depth: usize,
 }
 
 impl<'tcx> Visitor<'tcx> for ReachableContext<'tcx> {
@@ -58,7 +64,7 @@ impl<'tcx> Visitor<'tcx> for ReachableContext<'tcx> {
                 .type_dependent_def(expr.hir_id)
                 .map(|(kind, def_id)| Res::Def(kind, def_id)),
             hir::ExprKind::Closure(&hir::Closure { def_id, .. }) => {
-                self.reachable_symbols.insert(def_id);
+                self.add(def_id);
                 None
             }
             _ => None,
@@ -68,16 +74,16 @@ impl<'tcx> Visitor<'tcx> for ReachableContext<'tcx> {
             && let Some(def_id) = res.opt_def_id().and_then(|el| el.as_local())
         {
             if self.def_id_represents_local_inlined_item(def_id.to_def_id()) {
-                self.worklist.push(def_id);
+                self.worklist.push((def_id, self.const_depth));
             } else {
                 match res {
                     // Reachable constants and reachable statics can have their contents inlined
                     // into other crates. Mark them as reachable and recurse into their body.
                     Res::Def(DefKind::Const | DefKind::AssocConst | DefKind::Static(_), _) => {
-                        self.worklist.push(def_id);
+                        self.worklist.push((def_id, self.const_depth));
                     }
                     _ => {
-                        self.reachable_symbols.insert(def_id);
+                        self.add(def_id);
                     }
                 }
             }
@@ -90,7 +96,7 @@ impl<'tcx> Visitor<'tcx> for ReachableContext<'tcx> {
         for (op, _) in asm.operands {
             if let hir::InlineAsmOperand::SymStatic { def_id, .. } = op {
                 if let Some(def_id) = def_id.as_local() {
-                    self.reachable_symbols.insert(def_id);
+                    self.add(def_id);
                 }
             }
         }
@@ -106,6 +112,18 @@ impl<'tcx> ReachableContext<'tcx> {
     fn typeck_results(&self) -> &'tcx ty::TypeckResults<'tcx> {
         self.maybe_typeck_results
             .expect("`ReachableContext::typeck_results` called outside of body")
+    }
+
+    fn add(&mut self, def_id: LocalDefId) {
+        debug!("Adding {:?} at const depth {:?}", def_id, self.const_depth);
+        self.reachable_symbols.insert(def_id);
+        if !self.is_in_const() {
+            self.runtime_reachable_symbols.insert(def_id);
+        }
+    }
+
+    fn is_in_const(&self) -> bool {
+        self.const_depth > 0
     }
 
     // Returns true if the given def ID represents a local item that is
@@ -140,13 +158,15 @@ impl<'tcx> ReachableContext<'tcx> {
 
     // Step 2: Mark all symbols that the symbols on the worklist touch.
     fn propagate(&mut self) {
-        let mut scanned = LocalDefIdSet::default();
-        while let Some(search_item) = self.worklist.pop() {
-            if !scanned.insert(search_item) {
+        let mut scanned = FxHashSet::default();
+        while let Some((search_item, const_depth)) = self.worklist.pop() {
+            if !scanned.insert((search_item, self.is_in_const())) {
                 continue;
             }
 
+            debug!("Scanning {:?}", search_item);
             if let Some(ref item) = self.tcx.opt_hir_node_by_def_id(search_item) {
+                self.const_depth = const_depth;
                 self.propagate_node(item, search_item);
             }
         }
@@ -175,14 +195,14 @@ impl<'tcx> ReachableContext<'tcx> {
             let std_internal =
                 codegen_attrs.flags.contains(CodegenFnAttrFlags::RUSTC_STD_INTERNAL_SYMBOL);
             if reachable || is_extern || std_internal {
-                self.reachable_symbols.insert(search_item);
+                self.add(search_item);
             }
         } else {
             // If we are building a library, then reachable symbols will
             // continue to participate in linkage after this product is
             // produced. In this case, we traverse the ast node, recursing on
             // all reachable nodes from this one.
-            self.reachable_symbols.insert(search_item);
+            self.add(search_item);
         }
 
         match *node {
@@ -198,7 +218,9 @@ impl<'tcx> ReachableContext<'tcx> {
                     // unconditionally, so we need to make sure that their
                     // contents are also reachable.
                     hir::ItemKind::Const(_, _, init) | hir::ItemKind::Static(_, _, init) => {
+                        self.const_depth += 1;
                         self.visit_nested_body(init);
+                        self.const_depth -= 1;
                     }
 
                     // These are normal, nothing reachable about these
@@ -226,8 +248,12 @@ impl<'tcx> ReachableContext<'tcx> {
                     | hir::TraitItemKind::Fn(_, hir::TraitFn::Required(_)) => {
                         // Keep going, nothing to get exported
                     }
-                    hir::TraitItemKind::Const(_, Some(body_id))
-                    | hir::TraitItemKind::Fn(_, hir::TraitFn::Provided(body_id)) => {
+                    hir::TraitItemKind::Const(_, Some(body_id)) => {
+                        self.const_depth += 1;
+                        self.visit_nested_body(body_id);
+                        self.const_depth -= 1;
+                    }
+                    hir::TraitItemKind::Fn(_, hir::TraitFn::Provided(body_id)) => {
                         self.visit_nested_body(body_id);
                     }
                     hir::TraitItemKind::Type(..) => {}
@@ -235,7 +261,9 @@ impl<'tcx> ReachableContext<'tcx> {
             }
             Node::ImplItem(impl_item) => match impl_item.kind {
                 hir::ImplItemKind::Const(_, body) => {
+                    self.const_depth += 1;
                     self.visit_nested_body(body);
+                    self.const_depth -= 1;
                 }
                 hir::ImplItemKind::Fn(_, body) => {
                     if item_might_be_inlined(self.tcx, impl_item.hir_id().owner.to_def_id()) {
@@ -271,11 +299,11 @@ impl<'tcx> ReachableContext<'tcx> {
 fn check_item<'tcx>(
     tcx: TyCtxt<'tcx>,
     id: hir::ItemId,
-    worklist: &mut Vec<LocalDefId>,
+    worklist: &mut Vec<(LocalDefId, usize)>,
     effective_visibilities: &privacy::EffectiveVisibilities,
 ) {
     if has_custom_linkage(tcx, id.owner_id.def_id) {
-        worklist.push(id.owner_id.def_id);
+        worklist.push((id.owner_id.def_id, 0));
     }
 
     if !matches!(tcx.def_kind(id.owner_id), DefKind::Impl { of_trait: true }) {
@@ -288,7 +316,7 @@ fn check_item<'tcx>(
     }
 
     let items = tcx.associated_item_def_ids(id.owner_id);
-    worklist.extend(items.iter().map(|ii_ref| ii_ref.expect_local()));
+    worklist.extend(items.iter().map(|ii_ref| ii_ref.expect_local()).zip(std::iter::repeat(0)));
 
     let Some(trait_def_id) = tcx.trait_id_of_impl(id.owner_id.to_def_id()) else {
         unreachable!();
@@ -299,7 +327,7 @@ fn check_item<'tcx>(
     }
 
     worklist
-        .extend(tcx.provided_trait_methods(trait_def_id).map(|assoc| assoc.def_id.expect_local()));
+        .extend(tcx.provided_trait_methods(trait_def_id).map(|assoc| assoc.def_id.expect_local()).zip(std::iter::repeat(0)));
 }
 
 fn has_custom_linkage(tcx: TyCtxt<'_>, def_id: LocalDefId) -> bool {
@@ -319,7 +347,7 @@ fn has_custom_linkage(tcx: TyCtxt<'_>, def_id: LocalDefId) -> bool {
         || codegen_attrs.flags.contains(CodegenFnAttrFlags::USED_LINKER)
 }
 
-fn reachable_set(tcx: TyCtxt<'_>, (): ()) -> LocalDefIdSet {
+fn reachable_set(tcx: TyCtxt<'_>, (): ()) -> (LocalDefIdSet, LocalDefIdSet) {
     let effective_visibilities = &tcx.effective_visibilities(());
 
     let any_library = tcx
@@ -330,8 +358,10 @@ fn reachable_set(tcx: TyCtxt<'_>, (): ()) -> LocalDefIdSet {
         tcx,
         maybe_typeck_results: None,
         reachable_symbols: Default::default(),
+        runtime_reachable_symbols: Default::default(),
         worklist: Vec::new(),
         any_library,
+        const_depth: 0,
     };
 
     // Step 1: Seed the worklist with all nodes which were found to be public as
@@ -342,13 +372,13 @@ fn reachable_set(tcx: TyCtxt<'_>, (): ()) -> LocalDefIdSet {
     reachable_context.worklist = effective_visibilities
         .iter()
         .filter_map(|(&id, effective_vis)| {
-            effective_vis.is_public_at_level(Level::ReachableThroughImplTrait).then_some(id)
+            effective_vis.is_public_at_level(Level::ReachableThroughImplTrait).then_some((id, 0))
         })
         .collect::<Vec<_>>();
 
     for (_, def_id) in tcx.lang_items().iter() {
         if let Some(def_id) = def_id.as_local() {
-            reachable_context.worklist.push(def_id);
+            reachable_context.worklist.push((def_id, 0));
         }
     }
     {
@@ -368,7 +398,7 @@ fn reachable_set(tcx: TyCtxt<'_>, (): ()) -> LocalDefIdSet {
 
         for id in crate_items.impl_items() {
             if has_custom_linkage(tcx, id.owner_id.def_id) {
-                reachable_context.worklist.push(id.owner_id.def_id);
+                reachable_context.worklist.push((id.owner_id.def_id, 0));
             }
         }
     }
@@ -377,9 +407,10 @@ fn reachable_set(tcx: TyCtxt<'_>, (): ()) -> LocalDefIdSet {
     reachable_context.propagate();
 
     debug!("Inline reachability shows: {:?}", reachable_context.reachable_symbols);
+    debug!("Runtime Inline reachability shows: {:?}", reachable_context.runtime_reachable_symbols);
 
     // Return the set of reachable symbols.
-    reachable_context.reachable_symbols
+    (reachable_context.reachable_symbols, reachable_context.runtime_reachable_symbols)
 }
 
 pub fn provide(providers: &mut Providers) {
