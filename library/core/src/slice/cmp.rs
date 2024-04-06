@@ -12,10 +12,12 @@ impl<T, U> PartialEq<[U]> for [T]
 where
     T: PartialEq<U>,
 {
+    #[inline]
     fn eq(&self, other: &[U]) -> bool {
         SlicePartialEq::equal(self, other)
     }
 
+    #[inline]
     fn ne(&self, other: &[U]) -> bool {
         SlicePartialEq::not_equal(self, other)
     }
@@ -27,6 +29,7 @@ impl<T: Eq> Eq for [T] {}
 /// Implements comparison of slices [lexicographically](Ord#lexicographical-comparison).
 #[stable(feature = "rust1", since = "1.0.0")]
 impl<T: Ord> Ord for [T] {
+    #[inline]
     fn cmp(&self, other: &[T]) -> Ordering {
         SliceOrd::compare(self, other)
     }
@@ -45,6 +48,7 @@ impl<T: PartialOrd> PartialOrd for [T] {
 trait SlicePartialEq<B> {
     fn equal(&self, other: &[B]) -> bool;
 
+    #[inline]
     fn not_equal(&self, other: &[B]) -> bool {
         !self.equal(other)
     }
@@ -55,6 +59,7 @@ impl<A, B> SlicePartialEq<B> for [A]
 where
     A: PartialEq<B>,
 {
+    #[inline]
     default fn equal(&self, other: &[B]) -> bool {
         if self.len() != other.len() {
             return false;
@@ -80,6 +85,7 @@ impl<A, B> SlicePartialEq<B> for [A]
 where
     A: BytewiseEq<B>,
 {
+    #[inline]
     fn equal(&self, other: &[B]) -> bool {
         if self.len() != other.len() {
             return false;
@@ -101,6 +107,7 @@ trait SlicePartialOrd: Sized {
 }
 
 impl<A: PartialOrd> SlicePartialOrd for A {
+    #[inline]
     default fn partial_compare(left: &[A], right: &[A]) -> Option<Ordering> {
         let l = cmp::min(left.len(), right.len());
 
@@ -134,6 +141,7 @@ where
 */
 
 impl<A: AlwaysApplicableOrd> SlicePartialOrd for A {
+    #[inline]
     fn partial_compare(left: &[A], right: &[A]) -> Option<Ordering> {
         Some(SliceOrd::compare(left, right))
     }
@@ -165,6 +173,7 @@ trait SliceOrd: Sized {
 }
 
 impl<A: Ord> SliceOrd for A {
+    #[inline]
     default fn compare(left: &[Self], right: &[Self]) -> Ordering {
         let l = cmp::min(left.len(), right.len());
 
@@ -212,6 +221,7 @@ impl<T> SliceContains for T
 where
     T: PartialEq,
 {
+    #[inline]
     default fn slice_contains(&self, x: &[Self]) -> bool {
         x.iter().any(|y| *y == *self)
     }
