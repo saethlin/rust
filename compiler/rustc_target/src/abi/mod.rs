@@ -299,4 +299,8 @@ impl<'a, Ty> TyAndLayout<'a, Ty> {
         }
         found
     }
+
+    pub fn is_1zst(&self) -> bool {
+        self.layout.size() == Size::ZERO && self.layout.align().abi == Align::ONE
+    }
 }
