@@ -286,6 +286,7 @@ impl Slice {
         String::from_utf8_lossy(&self.inner)
     }
 
+    #[inline]
     pub fn to_owned(&self) -> Buf {
         Buf { inner: self.inner.to_vec() }
     }
