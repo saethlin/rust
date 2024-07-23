@@ -3,6 +3,7 @@ use crate::pass_manager as pm;
 use rustc_attr::InlineAttr;
 use rustc_hir::def::DefKind;
 use rustc_hir::def_id::LocalDefId;
+use rustc_hir::LangItem;
 use rustc_middle::mir::visit::Visitor;
 use rustc_middle::mir::*;
 use rustc_middle::query::Providers;
@@ -16,6 +17,21 @@ pub fn provide(providers: &mut Providers) {
 }
 
 fn cross_crate_inlinable(tcx: TyCtxt<'_>, def_id: LocalDefId) -> bool {
+    // Bail quickly for DefIds that wouldn't be inlinable anyway, such as statics.
+    if !matches!(
+        tcx.def_kind(def_id),
+        DefKind::Fn | DefKind::AssocFn | DefKind::Closure | DefKind::Ctor(..)
+    ) {
+        return false;
+    }
+
+    // The program entrypoint is never inlinable in any sense.
+    if let Some((entry_fn, _)) = tcx.entry_fn(()) {
+        if def_id == entry_fn.expect_local() {
+            return false;
+        }
+    }
+
     let codegen_fn_attrs = tcx.codegen_fn_attrs(def_id);
     // If this has an extern indicator, then this function is globally shared and thus will not
     // generate cgu-internal copies which would make it cross-crate inlinable.
@@ -23,17 +39,12 @@ fn cross_crate_inlinable(tcx: TyCtxt<'_>, def_id: LocalDefId) -> bool {
         return false;
     }
 
-    // This just reproduces the logic from Instance::requires_inline.
-    match tcx.def_kind(def_id) {
-        DefKind::Ctor(..) | DefKind::Closure => return true,
-        DefKind::Fn | DefKind::AssocFn => {}
-        _ => return false,
-    }
-
-    // From this point on, it is valid to return true or false.
-    if tcx.sess.opts.unstable_opts.cross_crate_inline_threshold == InliningThreshold::Always {
-        return true;
-    }
+    // From this point on, it is technically valid to return true or false.
+    let threshold = match tcx.sess.opts.unstable_opts.cross_crate_inline_threshold {
+        InliningThreshold::Always => return true,
+        InliningThreshold::Sometimes(threshold) => threshold,
+        InliningThreshold::Never => return false,
+    };
 
     if tcx.has_attr(def_id, sym::rustc_intrinsic) {
         // Intrinsic fallback bodies are always cross-crate inlineable.
@@ -43,18 +54,18 @@ fn cross_crate_inlinable(tcx: TyCtxt<'_>, def_id: LocalDefId) -> bool {
         return true;
     }
 
+    // Don't do any inference when incremental compilation is enabled; the additional inlining that
+    // inference permits also creates more work for small edits.
+    if tcx.sess.opts.incremental.is_some() {
+        return false;
+    }
+
     // Obey source annotations first; this is important because it means we can use
     // #[inline(never)] to force code generation.
     match codegen_fn_attrs.inline {
         InlineAttr::Never => return false,
         InlineAttr::Hint | InlineAttr::Always => return true,
-        _ => {}
-    }
-
-    // Don't do any inference when incremental compilation is enabled; the additional inlining that
-    // inference permits also creates more work for small edits.
-    if tcx.sess.opts.incremental.is_some() {
-        return false;
+        InlineAttr::None => {}
     }
 
     // Don't do any inference if codegen optimizations are disabled and also MIR inlining is not
@@ -62,23 +73,36 @@ fn cross_crate_inlinable(tcx: TyCtxt<'_>, def_id: LocalDefId) -> bool {
     // which is less confusing than having to also enable -Copt-level=1.
     if matches!(tcx.sess.opts.optimize, OptLevel::No) && !pm::should_run_pass(tcx, &inline::Inline)
     {
-        return false;
+        if !matches!(tcx.def_kind(def_id), DefKind::Ctor(..)) {
+            return false;
+        }
     }
 
+    if tcx.is_lang_item(def_id.into(), LangItem::DropInPlace)
+        || tcx.is_lang_item(def_id.into(), LangItem::AsyncDropInPlace)
+    {
+        return true;
+    }
+
+    // If there is no MIR for the DefId, we can't analyze the body. But also, this only arises in
+    // two relevant cases: extern functions and MIR shims. So here we recognize the MIR shims by a
+    // DefId that has no MIR and whose parent is one of the shimmed traits.
+    // Everything else is extern functions, and thus not a candidate for inlining.
     if !tcx.is_mir_available(def_id) {
-        return false;
+        let parent = tcx.parent(def_id.into());
+        match tcx.lang_items().from_def_id(parent.into()) {
+            Some(LangItem::Clone | LangItem::FnOnce | LangItem::Fn | LangItem::FnMut) => {
+                return true;
+            }
+            _ => return false,
+        }
     }
-
-    let threshold = match tcx.sess.opts.unstable_opts.cross_crate_inline_threshold {
-        InliningThreshold::Always => return true,
-        InliningThreshold::Sometimes(threshold) => threshold,
-        InliningThreshold::Never => return false,
-    };
 
     let mir = tcx.optimized_mir(def_id);
     let mut checker =
         CostChecker { tcx, callee_body: mir, calls: 0, statements: 0, landing_pads: 0, resumes: 0 };
     checker.visit_body(mir);
+
     checker.calls == 0
         && checker.resumes == 0
         && checker.landing_pads == 0

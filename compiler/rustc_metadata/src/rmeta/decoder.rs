@@ -1321,7 +1321,11 @@ impl<'a, 'tcx> CrateMetadataRef<'a> {
     }
 
     fn cross_crate_inlinable(self, id: DefIndex) -> bool {
-        self.root.tables.cross_crate_inlinable.get(self, id)
+        self.root
+            .tables
+            .cross_crate_inlinable
+            .get(self, id)
+            .expect(&format!("No cross_crate_inlinable for {:?}", id))
     }
 
     fn get_fn_has_self_parameter(self, id: DefIndex, sess: &'a Session) -> bool {

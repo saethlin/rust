@@ -1,6 +1,5 @@
 use crate::dep_graph::{DepNode, WorkProduct, WorkProductId};
 use crate::ty::{GenericArgs, Instance, InstanceKind, SymbolName, TyCtxt};
-use rustc_attr::InlineAttr;
 use rustc_data_structures::base_n::BaseNString;
 use rustc_data_structures::base_n::ToBaseN;
 use rustc_data_structures::base_n::CASE_INSENSITIVE;
@@ -13,7 +12,6 @@ use rustc_hir::ItemId;
 use rustc_index::Idx;
 use rustc_macros::{HashStable, TyDecodable, TyEncodable};
 use rustc_query_system::ich::StableHashingContext;
-use rustc_session::config::OptLevel;
 use rustc_span::symbol::Symbol;
 use rustc_span::Span;
 use std::fmt;
@@ -105,41 +103,19 @@ impl<'tcx> MonoItem<'tcx> {
     }
 
     pub fn instantiation_mode(&self, tcx: TyCtxt<'tcx>) -> InstantiationMode {
-        let generate_cgu_internal_copies = tcx
-            .sess
-            .opts
-            .unstable_opts
-            .inline_in_all_cgus
-            .unwrap_or_else(|| tcx.sess.opts.optimize != OptLevel::No)
-            && !tcx.sess.link_dead_code();
-
+        if tcx.sess.link_dead_code() {
+            return InstantiationMode::GloballyShared { may_conflict: false };
+        }
         match *self {
             MonoItem::Fn(ref instance) => {
                 let entry_def_id = tcx.entry_fn(()).map(|(id, _)| id);
-                // If this function isn't inlined or otherwise has an extern
-                // indicator, then we'll be creating a globally shared version.
-                if tcx.codegen_fn_attrs(instance.def_id()).contains_extern_indicator()
-                    || !instance.def.generates_cgu_internal_copy(tcx)
-                    || Some(instance.def_id()) == entry_def_id
-                {
+                if Some(instance.def_id()) == entry_def_id {
                     return InstantiationMode::GloballyShared { may_conflict: false };
                 }
-
-                // At this point we don't have explicit linkage and we're an
-                // inlined function. If we're inlining into all CGUs then we'll
-                // be creating a local copy per CGU.
-                if generate_cgu_internal_copies {
-                    return InstantiationMode::LocalCopy;
-                }
-
-                // Finally, if this is `#[inline(always)]` we're sure to respect
-                // that with an inline copy per CGU, but otherwise we'll be
-                // creating one copy of this `#[inline]` function which may
-                // conflict with upstream crates as it could be an exported
-                // symbol.
-                match tcx.codegen_fn_attrs(instance.def_id()).inline {
-                    InlineAttr::Always => InstantiationMode::LocalCopy,
-                    _ => InstantiationMode::GloballyShared { may_conflict: true },
+                if tcx.cross_crate_inlinable(instance.def_id()) {
+                    InstantiationMode::LocalCopy
+                } else {
+                    InstantiationMode::GloballyShared { may_conflict: false }
                 }
             }
             MonoItem::Static(..) | MonoItem::GlobalAsm(..) => {
