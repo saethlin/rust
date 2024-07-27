@@ -113,7 +113,11 @@ impl<'tcx> MonoItem<'tcx> {
                     return InstantiationMode::GloballyShared { may_conflict: false };
                 }
                 if tcx.cross_crate_inlinable(instance.def_id()) {
-                    InstantiationMode::LocalCopy
+                    if tcx.sess.opts.incremental.is_some() {
+                        InstantiationMode::GloballyShared { may_conflict: true }
+                    } else {
+                        InstantiationMode::LocalCopy
+                    }
                 } else {
                     InstantiationMode::GloballyShared { may_conflict: false }
                 }

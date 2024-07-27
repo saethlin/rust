@@ -98,7 +98,11 @@ use std::fs::{self, File};
 use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
 
+use rustc_data_structures::base_n::ToBaseN;
 use rustc_data_structures::fx::{FxIndexMap, FxIndexSet};
+use rustc_data_structures::stable_hasher::Hash64;
+use rustc_data_structures::stable_hasher::HashStable;
+use rustc_data_structures::stable_hasher::StableHasher;
 use rustc_data_structures::sync;
 use rustc_data_structures::unord::{UnordMap, UnordSet};
 use rustc_hir::def::DefKind;
@@ -195,10 +199,73 @@ where
     codegen_units
 }
 
+fn place_mono_items_incr<'tcx, I>(
+    cx: &PartitioningCx<'_, 'tcx>,
+    mono_items: I,
+) -> PlacedMonoItems<'tcx>
+where
+    I: Iterator<Item = MonoItem<'tcx>>,
+{
+    let mut codegen_units = UnordMap::default();
+
+    let mut reachable_inlined_items = FxIndexSet::default();
+
+    for mono_item in mono_items {
+        // Instantiate everything as GloballyShared in its own CGU
+        let symbol_name = mono_item.symbol_name(cx.tcx).name;
+
+        let hash = cx.tcx.with_stable_hashing_context(|mut hcx| {
+            let mut hasher = StableHasher::new();
+            symbol_name.hash_stable(&mut hcx, &mut hasher);
+            hasher.finish::<Hash64>().as_u64()
+        });
+
+        let cgu_name = Symbol::intern(&hash.to_base(62));
+
+        let cgu = codegen_units.entry(cgu_name).or_insert_with(|| CodegenUnit::new(cgu_name));
+
+        let linkage = Linkage::External;
+        let visibility = Visibility::Default;
+
+        let size_estimate = mono_item.size_estimate(cx.tcx);
+
+        cgu.items_mut()
+            .insert(mono_item, MonoItemData { inlined: false, linkage, visibility, size_estimate });
+
+        get_reachable_inlined_items(cx.tcx, mono_item, cx.usage_map, &mut reachable_inlined_items);
+    }
+
+    let symbol = Symbol::intern("upstream");
+    let cgu = codegen_units.entry(symbol).or_insert_with(|| CodegenUnit::new(symbol));
+
+    for inlined_item in reachable_inlined_items {
+        cgu.items_mut().entry(inlined_item).or_insert_with(|| MonoItemData {
+            inlined: false,
+            linkage: Linkage::External,
+            visibility: Visibility::Default,
+            size_estimate: inlined_item.size_estimate(cx.tcx),
+        });
+    }
+
+    let mut codegen_units: Vec<_> = cx.tcx.with_stable_hashing_context(|ref hcx| {
+        codegen_units.into_items().map(|(_, cgu)| cgu).collect_sorted(hcx, true)
+    });
+
+    for cgu in codegen_units.iter_mut() {
+        cgu.compute_size_estimate();
+    }
+
+    return PlacedMonoItems { codegen_units, internalization_candidates: UnordSet::default() };
+}
+
 fn place_mono_items<'tcx, I>(cx: &PartitioningCx<'_, 'tcx>, mono_items: I) -> PlacedMonoItems<'tcx>
 where
     I: Iterator<Item = MonoItem<'tcx>>,
 {
+    if cx.tcx.sess.opts.incremental.is_some() {
+        return place_mono_items_incr(cx, mono_items);
+    }
+
     let mut codegen_units = UnordMap::default();
     let is_incremental_build = cx.tcx.sess.opts.incremental.is_some();
     let mut internalization_candidates = UnordSet::default();
@@ -295,20 +362,20 @@ where
     }
 
     return PlacedMonoItems { codegen_units, internalization_candidates };
+}
 
-    fn get_reachable_inlined_items<'tcx>(
-        tcx: TyCtxt<'tcx>,
-        item: MonoItem<'tcx>,
-        usage_map: &UsageMap<'tcx>,
-        visited: &mut FxIndexSet<MonoItem<'tcx>>,
-    ) {
-        usage_map.for_each_inlined_used_item(tcx, item, |inlined_item| {
-            let is_new = visited.insert(inlined_item);
-            if is_new {
-                get_reachable_inlined_items(tcx, inlined_item, usage_map, visited);
-            }
-        });
-    }
+fn get_reachable_inlined_items<'tcx>(
+    tcx: TyCtxt<'tcx>,
+    item: MonoItem<'tcx>,
+    usage_map: &UsageMap<'tcx>,
+    visited: &mut FxIndexSet<MonoItem<'tcx>>,
+) {
+    usage_map.for_each_inlined_used_item(tcx, item, |inlined_item| {
+        let is_new = visited.insert(inlined_item);
+        if is_new {
+            get_reachable_inlined_items(tcx, inlined_item, usage_map, visited);
+        }
+    });
 }
 
 // This function requires the CGUs to be sorted by name on input, and ensures
@@ -321,6 +388,10 @@ fn merge_codegen_units<'tcx>(
 
     // A sorted order here ensures merging is deterministic.
     assert!(codegen_units.is_sorted_by(|a, b| a.name().as_str() <= b.name().as_str()));
+
+    if cx.tcx.sess.opts.incremental.is_some() {
+        return;
+    }
 
     // This map keeps track of what got merged into what.
     let mut cgu_contents: UnordMap<Symbol, Vec<Symbol>> =
