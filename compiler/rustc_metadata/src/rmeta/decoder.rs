@@ -1324,7 +1324,7 @@ impl<'a, 'tcx> CrateMetadataRef<'a> {
         self.root.tables.cross_crate_inlinable.get(self, id).unwrap_or_else(|| {
             debug!("cross_crate_inlinable missing for {id:?}");
             false
-        });
+        })
     }
 
     fn get_fn_has_self_parameter(self, id: DefIndex, sess: &'a Session) -> bool {
