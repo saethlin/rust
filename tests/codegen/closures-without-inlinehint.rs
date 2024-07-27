@@ -1,4 +1,5 @@
-//@ compile-flags: -Cno-prepopulate-passes -Csymbol-mangling-version=v0 -Zinline-mir=no -Copt-level=0 -Cincremental=test
+//@ incremental
+//@ compile-flags: -Cno-prepopulate-passes -Csymbol-mangling-version=v0 -Zinline-mir=no -Copt-level=0
 
 #![crate_type = "lib"]
 
