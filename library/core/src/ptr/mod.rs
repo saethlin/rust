@@ -1138,6 +1138,7 @@ pub const unsafe fn swap<T>(x: *mut T, y: *mut T) {
 #[stable(feature = "swap_nonoverlapping", since = "1.27.0")]
 #[rustc_const_unstable(feature = "const_swap", issue = "83163")]
 #[rustc_diagnostic_item = "ptr_swap_nonoverlapping"]
+#[track_caller]
 pub const unsafe fn swap_nonoverlapping<T>(x: *mut T, y: *mut T, count: usize) {
     #[allow(unused)]
     macro_rules! attempt_swap_as_chunks {
@@ -1268,6 +1269,7 @@ const unsafe fn swap_nonoverlapping_simple_untyped<T>(x: *mut T, y: *mut T, coun
 #[stable(feature = "rust1", since = "1.0.0")]
 #[rustc_const_unstable(feature = "const_replace", issue = "83164")]
 #[rustc_diagnostic_item = "ptr_replace"]
+#[track_caller]
 pub const unsafe fn replace<T>(dst: *mut T, src: T) -> T {
     // SAFETY: the caller must guarantee that `dst` is valid to be
     // cast to a mutable reference (valid for writes, aligned, initialized),
@@ -1394,7 +1396,7 @@ pub const unsafe fn replace<T>(dst: *mut T, src: T) -> T {
 #[inline]
 #[stable(feature = "rust1", since = "1.0.0")]
 #[rustc_const_stable(feature = "const_ptr_read", since = "1.71.0")]
-#[cfg_attr(miri, track_caller)] // even without panics, this helps for Miri backtraces
+#[track_caller]
 #[rustc_diagnostic_item = "ptr_read"]
 pub const unsafe fn read<T>(src: *const T) -> T {
     // It would be semantically correct to implement this via `copy_nonoverlapping`
@@ -1620,7 +1622,7 @@ pub const unsafe fn read_unaligned<T>(src: *const T) -> T {
 #[stable(feature = "rust1", since = "1.0.0")]
 #[rustc_const_unstable(feature = "const_ptr_write", issue = "86302")]
 #[rustc_diagnostic_item = "ptr_write"]
-#[cfg_attr(miri, track_caller)] // even without panics, this helps for Miri backtraces
+#[track_caller]
 pub const unsafe fn write<T>(dst: *mut T, src: T) {
     // Semantically, it would be fine for this to be implemented as a
     // `copy_nonoverlapping` and appropriate drop suppression of `src`.
@@ -1802,7 +1804,7 @@ pub const unsafe fn write_unaligned<T>(dst: *mut T, src: T) {
 /// ```
 #[inline]
 #[stable(feature = "volatile", since = "1.9.0")]
-#[cfg_attr(miri, track_caller)] // even without panics, this helps for Miri backtraces
+#[track_caller]
 #[rustc_diagnostic_item = "ptr_read_volatile"]
 pub unsafe fn read_volatile<T>(src: *const T) -> T {
     // SAFETY: the caller must uphold the safety contract for `volatile_load`.
@@ -1882,7 +1884,7 @@ pub unsafe fn read_volatile<T>(src: *const T) -> T {
 #[inline]
 #[stable(feature = "volatile", since = "1.9.0")]
 #[rustc_diagnostic_item = "ptr_write_volatile"]
-#[cfg_attr(miri, track_caller)] // even without panics, this helps for Miri backtraces
+#[track_caller]
 pub unsafe fn write_volatile<T>(dst: *mut T, src: T) {
     // SAFETY: the caller must uphold the safety contract for `volatile_store`.
     unsafe {

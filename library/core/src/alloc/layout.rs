@@ -128,6 +128,7 @@ impl Layout {
     #[must_use]
     #[inline]
     #[rustc_allow_const_fn_unstable(ptr_alignment_type)]
+    #[track_caller]
     pub const unsafe fn from_size_align_unchecked(size: usize, align: usize) -> Self {
         assert_unsafe_precondition!(
             check_library_ub,

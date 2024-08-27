@@ -715,7 +715,7 @@ impl<T: ?Sized> *const T {
     #[unstable(feature = "ptr_sub_ptr", issue = "95892")]
     #[rustc_const_unstable(feature = "const_ptr_sub_ptr", issue = "95892")]
     #[inline]
-    #[cfg_attr(miri, track_caller)] // even without panics, this helps for Miri backtraces
+    #[track_caller]
     pub const unsafe fn sub_ptr(self, origin: *const T) -> usize
     where
         T: Sized,

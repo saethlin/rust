@@ -266,6 +266,7 @@ unsafe impl<T> SliceIndex<[T]> for usize {
     }
 
     #[inline]
+    #[track_caller]
     unsafe fn get_unchecked(self, slice: *const [T]) -> *const T {
         assert_unsafe_precondition!(
             check_language_ub,
@@ -285,6 +286,7 @@ unsafe impl<T> SliceIndex<[T]> for usize {
     }
 
     #[inline]
+    #[track_caller]
     unsafe fn get_unchecked_mut(self, slice: *mut [T]) -> *mut T {
         assert_unsafe_precondition!(
             check_library_ub,
@@ -335,6 +337,7 @@ unsafe impl<T> SliceIndex<[T]> for ops::IndexRange {
     }
 
     #[inline]
+    #[track_caller]
     unsafe fn get_unchecked(self, slice: *const [T]) -> *const [T] {
         assert_unsafe_precondition!(
             check_library_ub,
@@ -349,6 +352,7 @@ unsafe impl<T> SliceIndex<[T]> for ops::IndexRange {
     }
 
     #[inline]
+    #[track_caller]
     unsafe fn get_unchecked_mut(self, slice: *mut [T]) -> *mut [T] {
         assert_unsafe_precondition!(
             check_library_ub,
@@ -414,6 +418,7 @@ unsafe impl<T> SliceIndex<[T]> for ops::Range<usize> {
     }
 
     #[inline]
+    #[track_caller]
     unsafe fn get_unchecked(self, slice: *const [T]) -> *const [T] {
         assert_unsafe_precondition!(
             check_library_ub,
@@ -438,6 +443,7 @@ unsafe impl<T> SliceIndex<[T]> for ops::Range<usize> {
     }
 
     #[inline]
+    #[track_caller]
     unsafe fn get_unchecked_mut(self, slice: *mut [T]) -> *mut [T] {
         assert_unsafe_precondition!(
             check_library_ub,

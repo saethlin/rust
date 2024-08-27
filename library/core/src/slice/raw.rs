@@ -120,6 +120,7 @@ use crate::{array, ptr, ub_checks};
 #[rustc_const_stable(feature = "const_slice_from_raw_parts", since = "1.64.0")]
 #[must_use]
 #[rustc_diagnostic_item = "slice_from_raw_parts"]
+#[track_caller]
 pub const unsafe fn from_raw_parts<'a, T>(data: *const T, len: usize) -> &'a [T] {
     // SAFETY: the caller must uphold the safety contract for `from_raw_parts`.
     unsafe {
@@ -174,6 +175,7 @@ pub const unsafe fn from_raw_parts<'a, T>(data: *const T, len: usize) -> &'a [T]
 #[rustc_const_unstable(feature = "const_slice_from_raw_parts_mut", issue = "67456")]
 #[must_use]
 #[rustc_diagnostic_item = "slice_from_raw_parts_mut"]
+#[track_caller]
 pub const unsafe fn from_raw_parts_mut<'a, T>(data: *mut T, len: usize) -> &'a mut [T] {
     // SAFETY: the caller must uphold the safety contract for `from_raw_parts_mut`.
     unsafe {

@@ -18,7 +18,7 @@
               scope 5 (inlined NonNull::<[bool; 0]>::dangling) {
                   let _6: *mut [bool; 0];
                   scope 6 {
-                      scope 10 (inlined NonNull::<[bool; 0]>::new_unchecked) {
+                      scope 10 (inlined #[track_caller] NonNull::<[bool; 0]>::new_unchecked) {
                           let mut _8: bool;
                           let _9: ();
                           let mut _10: *mut ();

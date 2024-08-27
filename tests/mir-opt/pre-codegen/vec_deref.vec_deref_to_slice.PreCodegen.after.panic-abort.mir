@@ -47,7 +47,7 @@ fn vec_deref_to_slice(_1: &Vec<u8>) -> &[u8] {
                 }
             }
         }
-        scope 13 (inlined std::slice::from_raw_parts::<'_, u8>) {
+        scope 13 (inlined #[track_caller] std::slice::from_raw_parts::<'_, u8>) {
             debug data => _5;
             debug len => _6;
             let _7: *const [u8];
