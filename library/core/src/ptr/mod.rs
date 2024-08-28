@@ -1195,6 +1195,7 @@ pub const unsafe fn swap_nonoverlapping<T>(x: *mut T, y: *mut T, count: usize) {
 /// `swap_nonoverlapping` tries to use) so no need to manually SIMD it.
 #[inline]
 #[rustc_const_unstable(feature = "const_swap", issue = "83163")]
+#[cfg_attr(not(bootstrap), rustc_no_ubchecks)]
 const unsafe fn swap_nonoverlapping_simple_untyped<T>(x: *mut T, y: *mut T, count: usize) {
     let x = x.cast::<MaybeUninit<T>>();
     let y = y.cast::<MaybeUninit<T>>();

@@ -1000,6 +1000,10 @@ pub const BUILTIN_ATTRIBUTES: &[BuiltinAttribute] = &[
         "#[rustc_no_mir_inline] prevents the MIR inliner from inlining a function while not affecting codegen"
     ),
     rustc_attr!(
+        rustc_no_ubchecks, Normal, template!(Word), WarnFollowing, EncodeCrossCrate::Yes,
+        "#[rustc_no_ubchecks] asks the compiler to delete UB checks from a function"
+    ),
+    rustc_attr!(
         rustc_intrinsic_must_be_overridden, Normal, template!(Word), ErrorFollowing, EncodeCrossCrate::Yes,
         "the `#[rustc_intrinsic_must_be_overridden]` attribute is used to declare intrinsics without real bodies",
     ),
