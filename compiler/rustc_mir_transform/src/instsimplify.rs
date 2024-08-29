@@ -45,7 +45,12 @@ impl<'tcx> MirPass<'tcx> for InstSimplify {
         };
         let preserve_ub_checks =
             attr::contains_name(tcx.hir().krate_attrs(), sym::rustc_preserve_ub_checks);
-        let remove_ub_checks = tcx.has_attr(def_id, sym::rustc_no_ubchecks);
+        // FIXME(async_closures) tcx.has_attr on async closures seems to ICE. Not sure why.
+        let remove_ub_checks = if tcx.is_coroutine(def_id) {
+            false
+        } else {
+            tcx.has_attr(def_id, sym::rustc_no_ubchecks)
+        };
         for block in body.basic_blocks.as_mut() {
             for statement in block.statements.iter_mut() {
                 match statement.kind {
