@@ -1634,6 +1634,7 @@ pub const unsafe fn write<T>(dst: *mut T, src: T) {
     // `dst` cannot overlap `src` because the caller has mutable access
     // to `dst` while `src` is owned by this function.
     unsafe {
+        #[cfg(debug_assertions)]
         ub_checks::assert_unsafe_precondition!(
             check_language_ub,
             "ptr::write requires that the pointer argument is aligned and non-null",
