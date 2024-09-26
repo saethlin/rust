@@ -134,6 +134,7 @@ pub fn provide(providers: &mut Providers) {
         promoted_mir,
         deduced_param_attrs: deduce_param_attrs::deduced_param_attrs,
         coroutine_by_move_body_def_id: coroutine::coroutine_by_move_body_def_id,
+        is_nounwind,
         ..providers.queries
     };
 }
@@ -338,6 +339,8 @@ fn mir_promoted(
         tcx.ensure_with_value().coroutine_by_move_body_def_id(def);
     }
 
+    tcx.ensure_with_value().is_nounwind(def);
+
     let mut body = tcx.mir_built(def).steal();
     if let Some(error_reported) = const_qualifs.tainted_by_errors {
         body.tainted_by_errors = Some(error_reported);
@@ -358,6 +361,24 @@ fn mir_promoted(
 
     let promoted = promote_pass.promoted_fragments.into_inner();
     (tcx.alloc_steal_mir(body), tcx.alloc_steal_promoted(promoted))
+}
+
+fn is_nounwind<'tcx>(tcx: TyCtxt<'tcx>, local_def_id: LocalDefId) -> bool {
+    if !tcx.is_mir_available(local_def_id) {
+        return false;
+    }
+
+    let def_id = local_def_id.to_def_id();
+    let kind = tcx.def_kind(def_id);
+    if !kind.is_fn_like() {
+        return false;
+    }
+
+    let body = &*tcx.mir_built(local_def_id).borrow();
+    if body.basic_blocks.iter().all(|block| block.terminator().unwind().is_none()) {
+        return true;
+    }
+    false
 }
 
 /// Compute the MIR that is used during CTFE (and thus has no optimizations run on it)

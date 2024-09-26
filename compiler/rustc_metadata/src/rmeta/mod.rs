@@ -404,6 +404,7 @@ define_tables! {
     // individually instead of `DefId`s.
     module_children_reexports: Table<DefIndex, LazyArray<ModChild>>,
     cross_crate_inlinable: Table<DefIndex, bool>,
+    is_nounwind: Table<DefIndex, bool>,
 
 - optional:
     attributes: Table<DefIndex, LazyArray<ast::Attribute>>,
