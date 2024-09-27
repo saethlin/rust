@@ -338,8 +338,6 @@ fn mir_promoted(
         tcx.ensure_with_value().coroutine_by_move_body_def_id(def);
     }
 
-    tcx.ensure_with_value().mir_flags(def);
-
     let mut body = tcx.mir_built(def).steal();
     if let Some(error_reported) = const_qualifs.tainted_by_errors {
         body.tainted_by_errors = Some(error_reported);

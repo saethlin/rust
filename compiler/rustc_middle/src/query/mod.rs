@@ -1498,7 +1498,6 @@ rustc_queries! {
     }
     query mir_flags(key: DefId) -> MirFlags {
         desc { |tcx| "stashing some local properties of `{}` before the body is stolen", tcx.def_path_str(key) }
-        cache_on_disk_if { true }
         separate_provide_extern
     }
     query required_panic_strategy(_: CrateNum) -> Option<PanicStrategy> {
