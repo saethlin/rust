@@ -14,11 +14,6 @@ note: ...which requires promoting constants in MIR for `foo::{closure#0}`...
    |
 LL |     move |_: ()| {
    |     ^^^^^^^^^^^^
-note: ...which requires stashing some local properties of `foo::{closure#0}` before the body is stolen...
-  --> $DIR/clone-rpit.rs:15:5
-   |
-LL |     move |_: ()| {
-   |     ^^^^^^^^^^^^
 note: ...which requires building MIR for `foo::{closure#0}`...
   --> $DIR/clone-rpit.rs:15:5
    |

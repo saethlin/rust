@@ -331,8 +331,6 @@ fn mir_promoted(
         _ => ConstQualifs::default(),
     };
 
-    tcx.ensure_with_value().mir_flags(def);
-
     // the `by_move_body` query uses the raw mir, so make sure it is run.
     if tcx.needs_coroutine_by_move_body_def_id(def.to_def_id()) {
         tcx.ensure_with_value().coroutine_by_move_body_def_id(def);
@@ -372,7 +370,7 @@ fn mir_flags<'tcx>(tcx: TyCtxt<'tcx>, local_def_id: LocalDefId) -> MirFlags {
         return flags;
     }
 
-    let body = &*tcx.mir_built(local_def_id).borrow();
+    let body = &*tcx.mir_promoted(local_def_id).0.borrow();
 
     if is_nounwind(body) {
         flags.insert(MirFlags::IS_NOUNWIND);
@@ -435,6 +433,7 @@ fn mir_drops_elaborated_and_const_checked(tcx: TyCtxt<'_>, def: LocalDefId) -> &
         if pm::should_run_pass(tcx, &inline::Inline) {
             tcx.ensure_with_value().mir_inliner_callees(ty::InstanceKind::Item(def.to_def_id()));
         }
+        tcx.ensure_with_value().mir_flags(def);
     }
 
     let (body, _) = tcx.mir_promoted(def);
