@@ -327,6 +327,27 @@ fn create_alloc_family_attr(llcx: &llvm::Context) -> &llvm::Attribute {
     llvm::CreateAttrStringValue(llcx, "alloc-family", "__rust_alloc")
 }
 
+fn should_always_inline(body: &rustc_middle::mir::Body<'_>) -> bool {
+    use rustc_middle::mir::*;
+    match body.basic_blocks.len() {
+        0 => return true,
+        1 => {}
+        2.. => return false,
+    }
+    let block = &body.basic_blocks[START_BLOCK];
+    match block.statements.len() {
+        0 => {
+            matches!(block.terminator().kind, TerminatorKind::Return)
+        }
+        1 => {
+            let statement = &block.statements[0];
+            matches!(statement.kind, StatementKind::Assign(_))
+                && matches!(block.terminator().kind, TerminatorKind::Return)
+        }
+        2.. => return false,
+    }
+}
+
 /// Helper for `FnAbi::apply_attrs_llfn`:
 /// Composite function which sets LLVM attributes for function depending on its AST (`#[attribute]`)
 /// attributes.
@@ -356,7 +377,17 @@ pub(crate) fn llfn_attrs_from_instance<'ll, 'tcx>(
         } else {
             codegen_fn_attrs.inline
         };
-    to_add.extend(inline_attr(cx, inline));
+
+    if cx.tcx.is_mir_available(instance.def_id()) {
+        let body = cx.tcx.instance_mir(instance.def);
+        if should_always_inline(body) {
+            to_add.push(AttributeKind::AlwaysInline.create_attr(cx.llcx));
+        } else {
+            to_add.extend(inline_attr(cx, inline));
+        }
+    } else {
+        to_add.extend(inline_attr(cx, inline));
+    }
 
     // The `uwtable` attribute according to LLVM is:
     //
