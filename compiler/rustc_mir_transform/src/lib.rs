@@ -366,7 +366,7 @@ fn mir_flags<'tcx>(tcx: TyCtxt<'tcx>, local_def_id: LocalDefId) -> MirFlags {
         return flags;
     }
 
-    if !tcx.is_mir_available(local_def_id) {
+    if !tcx.mir_keys(()).contains(&local_def_id) {
         return flags;
     }
 
