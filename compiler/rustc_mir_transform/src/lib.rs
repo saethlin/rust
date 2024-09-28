@@ -360,13 +360,13 @@ fn mir_promoted(
 
 fn mir_flags<'tcx>(tcx: TyCtxt<'tcx>, local_def_id: LocalDefId) -> MirFlags {
     let mut flags = MirFlags::default();
-    if !tcx.is_mir_available(local_def_id) {
-        return flags;
-    }
-
     // Only perform check on functions because constants cannot call FFI functions.
     let kind = tcx.def_kind(local_def_id);
     if !kind.is_fn_like() {
+        return flags;
+    }
+
+    if !tcx.is_mir_available(local_def_id) {
         return flags;
     }
 
