@@ -13,6 +13,7 @@ use rustc_middle::middle::codegen_fn_attrs::{
 use rustc_middle::mir::mono::Linkage;
 use rustc_middle::query::Providers;
 use rustc_middle::ty::{self as ty, TyCtxt};
+use rustc_session::config::OptLevel;
 use rustc_session::lint;
 use rustc_session::parse::feature_err;
 use rustc_span::symbol::Ident;
@@ -525,7 +526,11 @@ fn codegen_fn_attrs(tcx: TyCtxt<'_>, did: LocalDefId) -> CodegenFnAttrs {
                         .emit();
                     InlineAttr::None
                 } else if list_contains_name(items, sym::always) {
-                    InlineAttr::Usually
+                    if tcx.sess.opts.optimize == OptLevel::No {
+                        InlineAttr::Usually
+                    } else {
+                        InlineAttr::Always
+                    }
                 } else if list_contains_name(items, sym::never) {
                     InlineAttr::Never
                 } else if list_contains_name(items, sym::usually) {
