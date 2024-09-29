@@ -31,14 +31,24 @@ pub(crate) fn apply_to_callsite(callsite: &Value, idx: AttributePlace, attrs: &[
 
 /// Get LLVM attribute for the provided inline heuristic.
 #[inline]
-fn inline_attr<'ll>(cx: &CodegenCx<'ll, '_>, inline: InlineAttr) -> Option<&'ll Attribute> {
+fn inline_attr<'ll>(
+    cx: &CodegenCx<'ll, '_>,
+    inline: InlineAttr,
+    should_always_inline: bool,
+) -> Option<&'ll Attribute> {
     if !cx.tcx.sess.opts.unstable_opts.inline_llvm {
         // disable LLVM inlining
         return Some(AttributeKind::NoInline.create_attr(cx.llcx));
     }
     match inline {
         InlineAttr::Hint => Some(AttributeKind::InlineHint.create_attr(cx.llcx)),
-        InlineAttr::Always => Some(AttributeKind::AlwaysInline.create_attr(cx.llcx)),
+        InlineAttr::Always => {
+            if should_always_inline {
+                Some(AttributeKind::AlwaysInline.create_attr(cx.llcx))
+            } else {
+                Some(llvm::CreateAttrStringValue(cx.llcx, "function-inline-cost", "0"))
+            }
+        }
         InlineAttr::Never => {
             if cx.sess().target.arch != "amdgpu" {
                 Some(AttributeKind::NoInline.create_attr(cx.llcx))
@@ -327,7 +337,7 @@ fn create_alloc_family_attr(llcx: &llvm::Context) -> &llvm::Attribute {
     llvm::CreateAttrStringValue(llcx, "alloc-family", "__rust_alloc")
 }
 
-fn should_always_inline(body: &rustc_middle::mir::Body<'_>) -> bool {
+fn very_small_body(body: &rustc_middle::mir::Body<'_>) -> bool {
     use rustc_middle::mir::*;
     match body.basic_blocks.len() {
         0 => return true,
@@ -378,16 +388,14 @@ pub(crate) fn llfn_attrs_from_instance<'ll, 'tcx>(
             codegen_fn_attrs.inline
         };
 
-    if cx.tcx.is_mir_available(instance.def_id()) {
+    let very_small_body = if cx.tcx.is_mir_available(instance.def_id()) {
         let body = cx.tcx.instance_mir(instance.def);
-        if should_always_inline(body) {
-            to_add.push(AttributeKind::AlwaysInline.create_attr(cx.llcx));
-        } else {
-            to_add.extend(inline_attr(cx, inline));
-        }
+        very_small_body(body)
     } else {
-        to_add.extend(inline_attr(cx, inline));
-    }
+        false
+    };
+    let should_always_inline = very_small_body || cx.tcx.sess.opts.optimize != OptLevel::No;
+    to_add.extend(inline_attr(cx, inline, should_always_inline));
 
     // The `uwtable` attribute according to LLVM is:
     //
