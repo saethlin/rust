@@ -7,10 +7,10 @@
 //@ dont-check-compiler-stderr
 //@ error-pattern: encountered critical edge in `Call` terminator
 #![feature(custom_mir, core_intrinsics)]
-use core::intrinsics::mir::*;
+use std::intrinsics::mir::*;
 
-#[custom_mir(dialect = "runtime", phase = "optimized")]
-#[inline(always)]
+#[custom_mir(dialect = "runtime", phase = "codegen")]
+#[inline]
 pub fn f(a: u32) -> u32 {
     mir! {
         {
@@ -29,3 +29,5 @@ pub fn f(a: u32) -> u32 {
         }
     }
 }
+
+pub static F: fn(u32) -> u32 = f;
