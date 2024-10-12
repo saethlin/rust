@@ -562,6 +562,12 @@ rustc_queries! {
         separate_provide_extern
     }
 
+    /// MIR after our optimization passes have run. This is MIR that is ready
+    /// for codegen. This is also the only query that can fetch non-local MIR, at present.
+    query build_codegen_mir(key: ty::Instance<'tcx>) -> &'tcx mir::Body<'tcx> {
+        desc { |tcx| "finalizing codegen MIR for `{}`", tcx.def_path_str_with_args(key.def_id(), key.args) }
+    }
+
     /// Checks for the nearest `#[coverage(off)]` or `#[coverage(on)]` on
     /// this def and any enclosing defs, up to the crate root.
     ///

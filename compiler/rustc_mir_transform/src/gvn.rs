@@ -85,6 +85,7 @@
 use std::borrow::Cow;
 
 use either::Either;
+use rustc_ast::attr;
 use rustc_const_eval::const_eval::DummyMachine;
 use rustc_const_eval::interpret::{
     ImmTy, Immediate, InterpCx, MemPlaceMeta, MemoryKind, OpTy, Projectable, Scalar,
@@ -101,17 +102,27 @@ use rustc_middle::mir::visit::*;
 use rustc_middle::mir::*;
 use rustc_middle::ty::layout::{HasParamEnv, LayoutOf};
 use rustc_middle::ty::{self, Ty, TyCtxt};
-use rustc_span::DUMMY_SP;
 use rustc_span::def_id::DefId;
+use rustc_span::{DUMMY_SP, sym};
 use rustc_target::abi::{self, Abi, FIRST_VARIANT, FieldIdx, Primitive, Size, VariantIdx};
 use smallvec::SmallVec;
 use tracing::{debug, instrument, trace};
 
 use crate::ssa::{AssignedValue, SsaLocals};
 
-pub(super) struct GVN;
+pub(super) enum GVN {
+    Polymorphic,
+    PostMono,
+}
 
 impl<'tcx> crate::MirPass<'tcx> for GVN {
+    fn name(&self) -> &'static str {
+        match self {
+            GVN::Polymorphic => "GVN",
+            GVN::PostMono => "GVN-post-mono",
+        }
+    }
+
     fn is_enabled(&self, sess: &rustc_session::Session) -> bool {
         sess.mir_opt_level() >= 2
     }
@@ -260,6 +271,7 @@ struct VnState<'body, 'tcx> {
     ssa: &'body SsaLocals,
     dominators: Dominators<BasicBlock>,
     reused_locals: BitSet<Local>,
+    preserve_ub_checks: bool,
 }
 
 impl<'body, 'tcx> VnState<'body, 'tcx> {
@@ -292,6 +304,10 @@ impl<'body, 'tcx> VnState<'body, 'tcx> {
             ssa,
             dominators,
             reused_locals: BitSet::new_empty(local_decls.len()),
+            preserve_ub_checks: attr::contains_name(
+                tcx.hir().krate_attrs(),
+                sym::rustc_preserve_ub_checks,
+            ),
         }
     }
 
@@ -530,7 +546,14 @@ impl<'body, 'tcx> VnState<'body, 'tcx> {
                         .tcx
                         .offset_of_subfield(self.ecx.param_env(), layout, fields.iter())
                         .bytes(),
-                    NullOp::UbChecks => return None,
+                    NullOp::UbChecks => {
+                        return if self.preserve_ub_checks {
+                            None
+                        } else {
+                            let val = ImmTy::from_bool(self.tcx.sess.ub_checks(), self.tcx);
+                            Some(val.into())
+                        };
+                    }
                 };
                 let usize_layout = self.ecx.layout_of(self.tcx.types.usize).unwrap();
                 let imm = ImmTy::from_uint(val, usize_layout);

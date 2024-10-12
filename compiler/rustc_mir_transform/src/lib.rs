@@ -30,7 +30,7 @@ use rustc_middle::mir::{
     MirPhase, Operand, Place, ProjectionElem, Promoted, RuntimePhase, Rvalue, START_BLOCK,
     SourceInfo, Statement, StatementKind, TerminatorKind,
 };
-use rustc_middle::ty::{self, TyCtxt, TypeVisitableExt};
+use rustc_middle::ty::{self, Instance, TyCtxt, TypeVisitableExt};
 use rustc_middle::util::Providers;
 use rustc_middle::{bug, query, span_bug};
 use rustc_span::source_map::Spanned;
@@ -136,6 +136,7 @@ pub fn provide(providers: &mut Providers) {
         promoted_mir,
         deduced_param_attrs: deduce_param_attrs::deduced_param_attrs,
         coroutine_by_move_body_def_id: coroutine::coroutine_by_move_body_def_id,
+        build_codegen_mir,
         ..providers.queries
     };
 }
@@ -609,7 +610,7 @@ fn run_optimization_passes<'tcx>(tcx: TyCtxt<'tcx>, body: &mut Body<'tcx>) {
             &instsimplify::InstSimplify::AfterSimplifyCfg,
             &simplify::SimplifyLocals::BeforeConstProp,
             &dead_store_elimination::DeadStoreElimination::Initial,
-            &gvn::GVN,
+            &gvn::GVN::Polymorphic,
             &simplify::SimplifyLocals::AfterGVN,
             &dataflow_const_prop::DataflowConstProp,
             &single_use_consts::SingleUseConsts,
@@ -687,6 +688,28 @@ fn inner_optimized_mir(tcx: TyCtxt<'_>, did: LocalDefId) -> Body<'_> {
     run_optimization_passes(tcx, &mut body);
 
     body
+}
+
+pub fn build_codegen_mir<'tcx>(tcx: TyCtxt<'tcx>, instance: Instance<'tcx>) -> &'tcx Body<'tcx> {
+    let body = tcx.instance_mir(instance.def);
+    let mut body = instance.instantiate_mir_and_normalize_erasing_regions(
+        tcx,
+        ty::ParamEnv::reveal_all(),
+        ty::EarlyBinder::bind(body.clone()),
+    );
+    pm::run_passes(
+        tcx,
+        &mut body,
+        &[
+            &gvn::GVN::PostMono,
+            &instsimplify::InstSimplify::PostMono,
+            &simplify_branches::SimplifyConstCondition::PostMono,
+            &simplify::SimplifyCfg::PostMono,
+            &add_call_guards::CriticalCallEdges,
+        ],
+        None,
+    );
+    tcx.arena.alloc(body)
 }
 
 /// Fetch all the promoteds of an item and prepare their MIR bodies to be ready for

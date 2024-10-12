@@ -29,7 +29,16 @@ pub(crate) fn non_ssa_locals<'a, 'tcx, Bx: BuilderMethods<'a, 'tcx>>(
         })
         .collect();
 
-    let mut analyzer = LocalAnalyzer { fx, dominators, locals };
+    let instance_name = rustc_middle::ty::print::with_no_trimmed_paths!(
+        fx.cx.tcx().def_path_str_with_args(fx.instance.def_id(), fx.instance.args)
+    );
+    let interesting =
+        instance_name.contains("get_unchecked_mut") && instance_name.contains("IndexRange");
+
+    if interesting {
+        eprintln!("{}", instance_name);
+    }
+    let mut analyzer = LocalAnalyzer { fx, dominators, locals, interesting };
 
     // Arguments get assigned to by means of the function being called
     for arg in mir.args_iter() {
@@ -44,6 +53,17 @@ pub(crate) fn non_ssa_locals<'a, 'tcx, Bx: BuilderMethods<'a, 'tcx>>(
         analyzer.visit_basic_block_data(bb, data);
     }
 
+    if interesting {
+        let options = rustc_middle::mir::pretty::PrettyPrintMirOptions::from_cli(fx.cx.tcx());
+        rustc_middle::ty::print::with_no_trimmed_paths!(rustc_middle::mir::pretty::write_mir_fn(
+            fx.cx.tcx(),
+            mir,
+            &mut |_, _| Ok(()),
+            &mut std::io::stderr().lock(),
+            options
+        ));
+    }
+
     let mut non_ssa_locals = BitSet::new_empty(analyzer.locals.len());
     for (local, kind) in analyzer.locals.iter_enumerated() {
         if matches!(kind, LocalKind::Memory) {
@@ -54,7 +74,7 @@ pub(crate) fn non_ssa_locals<'a, 'tcx, Bx: BuilderMethods<'a, 'tcx>>(
     non_ssa_locals
 }
 
-#[derive(Copy, Clone, PartialEq, Eq)]
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
 enum LocalKind {
     ZST,
     /// A local that requires an alloca.
@@ -69,6 +89,7 @@ struct LocalAnalyzer<'a, 'b, 'tcx, Bx: BuilderMethods<'b, 'tcx>> {
     fx: &'a FunctionCx<'b, 'tcx, Bx>,
     dominators: &'a Dominators<mir::BasicBlock>,
     locals: IndexVec<mir::Local, LocalKind>,
+    interesting: bool,
 }
 
 impl<'a, 'b, 'tcx, Bx: BuilderMethods<'b, 'tcx>> LocalAnalyzer<'a, 'b, 'tcx, Bx> {
@@ -89,7 +110,12 @@ impl<'a, 'b, 'tcx, Bx: BuilderMethods<'b, 'tcx>> LocalAnalyzer<'a, 'b, 'tcx, Bx>
                         LocalKind::Memory
                     };
             }
-            LocalKind::SSA(_) => *kind = LocalKind::Memory,
+            LocalKind::SSA(_) => {
+                if self.interesting {
+                    eprintln!("Upgrading {:?} to Memory", local);
+                }
+                *kind = LocalKind::Memory;
+            }
         }
     }
 
@@ -173,6 +199,9 @@ impl<'a, 'b, 'tcx, Bx: BuilderMethods<'b, 'tcx>> Visitor<'tcx> for LocalAnalyzer
             if self.locals[local] != LocalKind::Memory {
                 let decl_span = self.fx.mir.local_decls[local].source_info.span;
                 if !self.fx.rvalue_creates_operand(rvalue, decl_span) {
+                    if self.interesting {
+                        eprintln!("Promoting {:?} to Memory at site 1", local);
+                    }
                     self.locals[local] = LocalKind::Memory;
                 }
             }
@@ -215,6 +244,9 @@ impl<'a, 'b, 'tcx, Bx: BuilderMethods<'b, 'tcx>> Visitor<'tcx> for LocalAnalyzer
                 // N.B., there can be uninitialized reads of a local visited after
                 // an assignment to that local, if they happen on disjoint paths.
                 kind @ (LocalKind::Unused | LocalKind::SSA(_)) => {
+                    if self.interesting {
+                        eprintln!("Promoting {:?} from {:?} to Memory at site 2", local, kind);
+                    }
                     *kind = LocalKind::Memory;
                 }
             },
@@ -244,6 +276,9 @@ impl<'a, 'b, 'tcx, Bx: BuilderMethods<'b, 'tcx>> Visitor<'tcx> for LocalAnalyzer
                     let ty = self.fx.mir.local_decls[local].ty;
                     let ty = self.fx.monomorphize(ty);
                     if self.fx.cx.type_needs_drop(ty) {
+                        if self.interesting {
+                            eprintln!("Promoting {:?} to Memory at site 3", local);
+                        }
                         // Only need the place if we're actually dropping it.
                         *kind = LocalKind::Memory;
                     }
