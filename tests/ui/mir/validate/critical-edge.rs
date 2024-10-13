@@ -10,7 +10,7 @@
 use std::intrinsics::mir::*;
 
 #[custom_mir(dialect = "runtime", phase = "codegen")]
-#[inline]
+#[inline(never)] // Force codegen so we go through codegen MIR validation
 pub fn f(a: u32) -> u32 {
     mir! {
         {
@@ -29,5 +29,3 @@ pub fn f(a: u32) -> u32 {
         }
     }
 }
-
-pub static F: fn(u32) -> u32 = f;
