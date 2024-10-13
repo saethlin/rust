@@ -1,4 +1,0 @@
- WARN rustc_codegen_ssa::mir::locals Unexpected initial operand type:
- expected Closure(DefId(0:9 ~ issue_74614[b919]::outer::{closure#0}), [Closure(DefId(0:9 ~ issue_74614[b919]::outer::{closure#0}), [T/#0, i8, Binder { value: extern "RustCall" fn(()), bound_vars: [] }, ()]), i8, Binder { value: extern "RustCall" fn(()), bound_vars: [] }, ()]),
- found    Closure(DefId(0:9 ~ issue_74614[b919]::outer::{closure#0}), [T/#0, i8, Binder { value: extern "RustCall" fn(()), bound_vars: [] }, ()]).
- See <https://github.com/rust-lang/rust/issues/114858>.
