@@ -688,7 +688,7 @@ fn inner_optimized_mir(tcx: TyCtxt<'_>, did: LocalDefId) -> Body<'_> {
     body
 }
 
-pub fn build_codegen_mir<'tcx>(tcx: TyCtxt<'tcx>, instance: Instance<'tcx>) -> &'tcx Body<'tcx> {
+pub fn build_codegen_mir<'tcx>(tcx: TyCtxt<'tcx>, instance: Instance<'tcx>) -> Body<'tcx> {
     let body = tcx.instance_mir(instance.def);
     let mut body = instance.instantiate_mir_and_normalize_erasing_regions(
         tcx,
@@ -705,19 +705,19 @@ pub fn build_codegen_mir<'tcx>(tcx: TyCtxt<'tcx>, instance: Instance<'tcx>) -> &
             // failures. So we rely on the fact that validation only runs after passes? It's
             // probably better to just delete that validation check.
             &abort_unwinding_calls::AbortUnwindingCalls,
-            &o1(gvn::GVN::PostMono),
+            &gvn::GVN::PostMono,
             // FIXME: Enabling this InstSimplify is required to fix the MIR from the
             // unreachable_unchecked precondition check that UnreachablePropagation creates, but
             // also enabling it breaks tests/codegen/issues/issue-122600-ptr-discriminant-update.rs
             // LLVM appears to handle switches on i64 better than it handles icmp eq + br.
-            &o1(instsimplify::InstSimplify::PostMono),
+            &instsimplify::InstSimplify::PostMono,
             &o1(simplify_branches::SimplifyConstCondition::PostMono),
             &o1(simplify::SimplifyCfg::PostMono),
             &add_call_guards::CriticalCallEdges,
         ],
         Some(MirPhase::Runtime(RuntimePhase::Codegen)),
     );
-    tcx.arena.alloc(body)
+    body
 }
 
 /// Fetch all the promoteds of an item and prepare their MIR bodies to be ready for
