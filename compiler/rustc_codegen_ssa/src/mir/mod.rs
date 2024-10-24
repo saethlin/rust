@@ -167,7 +167,7 @@ pub fn lower_mir<'a, 'tcx, Bx: BuilderMethods<'a, 'tcx>>(
 
     let llfn = cx.get_fn(instance);
 
-    let mir = cx.tcx().build_codegen_mir(instance);
+    let mir = cx.tcx().codegen_mir(instance);
 
     let fn_abi = cx.fn_abi_of_instance(instance, ty::List::empty());
     debug!("fn_abi: {:?}", fn_abi);

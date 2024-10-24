@@ -629,6 +629,7 @@ fn run_optimization_passes<'tcx>(tcx: TyCtxt<'tcx>, body: &mut Body<'tcx>) {
             &multiple_return_terminators::MultipleReturnTerminators,
             &deduplicate_blocks::DeduplicateBlocks,
             &large_enums::EnumSizeOpt { discrepancy: 128 },
+            &add_call_guards::CriticalCallEdges,
             // Cleanup for human readability, off by default.
             &prettify::ReorderBasicBlocks,
             &prettify::ReorderLocals,
