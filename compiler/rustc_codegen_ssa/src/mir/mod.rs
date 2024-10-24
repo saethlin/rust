@@ -159,7 +159,7 @@ impl<'tcx, V: CodegenObject> LocalRef<'tcx, V> {
 ///////////////////////////////////////////////////////////////////////////
 
 #[instrument(level = "debug", skip(cx))]
-pub fn codegen_mir<'a, 'tcx, Bx: BuilderMethods<'a, 'tcx>>(
+pub fn lower_mir<'a, 'tcx, Bx: BuilderMethods<'a, 'tcx>>(
     cx: &'a Bx::CodegenCx,
     instance: Instance<'tcx>,
 ) {
