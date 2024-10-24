@@ -690,12 +690,27 @@ fn inner_optimized_mir(tcx: TyCtxt<'_>, did: LocalDefId) -> Body<'_> {
 }
 
 pub fn build_codegen_mir<'tcx>(tcx: TyCtxt<'tcx>, instance: Instance<'tcx>) -> Body<'tcx> {
+    #[inline(never)]
+    fn clone_mir<'tcx>(body: &Body<'tcx>) -> Body<'tcx> {
+        body.clone()
+    }
+    #[inline(never)]
+    fn monomorphize_mir<'tcx>(
+        tcx: TyCtxt<'tcx>,
+        instance: Instance<'tcx>,
+        body: Body<'tcx>,
+    ) -> Body<'tcx> {
+        instance.instantiate_mir_and_normalize_erasing_regions(
+            tcx,
+            ty::ParamEnv::reveal_all(),
+            ty::EarlyBinder::bind(body),
+        )
+    }
+
     let body = tcx.instance_mir(instance.def);
-    let mut body = instance.instantiate_mir_and_normalize_erasing_regions(
-        tcx,
-        ty::ParamEnv::reveal_all(),
-        ty::EarlyBinder::bind(body.clone()),
-    );
+    let body = clone_mir(body);
+    let mut body = monomorphize_mir(tcx, instance, body);
+
     pm::run_passes(
         tcx,
         &mut body,

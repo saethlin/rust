@@ -567,7 +567,6 @@ rustc_queries! {
     /// and with extra transforms applied.
     query build_codegen_mir(key: ty::Instance<'tcx>) -> &'tcx mir::Body<'tcx> {
         desc { |tcx| "finalizing codegen MIR for `{}`", tcx.def_path_str_with_args(key.def_id(), key.args) }
-        cache_on_disk_if { true }
         arena_cache
     }
 
