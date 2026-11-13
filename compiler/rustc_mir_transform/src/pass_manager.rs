@@ -155,6 +155,12 @@ impl<'sess> PassCtx<'sess> {
         Self { session: tcx.sess, body_mir_opt_level }
     }
 
+    /// A context for a hypothetical body with the given MIR opt level, to ask whether a pass may
+    /// run for any body of the session.
+    pub(super) fn with_mir_opt_level(session: &'sess Session, mir_opt_level: usize) -> Self {
+        Self { session, body_mir_opt_level: mir_opt_level }
+    }
+
     /// The effective MIR optimization level for this body, including `#[optimize]` overrides.
     pub(super) fn mir_opt_level(&self) -> usize {
         self.body_mir_opt_level

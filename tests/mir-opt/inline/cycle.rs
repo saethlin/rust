@@ -12,12 +12,17 @@ fn f(g: impl Fn()) {
 // EMIT_MIR cycle.g.Inline.diff
 #[inline(always)]
 fn g() {
+    // `main` and `g` mention each other, so neither may inline the other. Whether `g` inlines
+    // `f` depends on the panic strategy (forwarder cost threshold).
     // CHECK-LABEL: fn g(
-    // CHECK-NOT: inlined
+    // CHECK-NOT: (inlined main)
     f(main);
 }
 
 // EMIT_MIR cycle.main.Inline.diff
 fn main() {
+    // CHECK-LABEL: fn main(
+    // CHECK: (inlined f::<fn() {g}>)
+    // CHECK-NOT: (inlined g)
     f(g);
 }

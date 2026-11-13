@@ -1,11 +1,7 @@
 //@ revisions: old next
 //@ ignore-compare-mode-next-solver (explicit revisions)
 //@[next] compile-flags: -Znext-solver
-//@[next] build-pass
-//@[old] build-fail
-//@[old] failure-status: 101
-//@[old] dont-check-compiler-stderr
-//@[old] known-bug: #146965
+//@ build-pass
 //@ compile-flags: --crate-type lib -C opt-level=3
 
 // A regression test for #146965. When considering to inline `fn no_bound`
@@ -16,7 +12,9 @@
 // again. This then causes us to fail to prove this where-bound.
 //
 // This is the case with both solvers, the new solver accepts it gracefully, while
-// the old solver ICEd in `fn codegen_select_candidate`.
+// the old solver ICEd in `fn codegen_select_candidate`. That ICE was reached by the old
+// call graph walk of the inliner's cycle check, which instantiated `and_rigid_again` from
+// `optimize_me` although it is never inlined there. The underlying bug is still latent.
 
 pub trait Ring {
     type Element;

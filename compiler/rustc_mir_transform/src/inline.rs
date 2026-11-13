@@ -4,7 +4,6 @@ use std::ops::{Range, RangeFrom};
 use std::{debug_assert_matches, iter};
 
 use rustc_abi::{ExternAbi, FieldIdx};
-use rustc_attr_ir::lang_items::LangItem;
 use rustc_attr_ir::{InlineAttr, OptimizeAttr};
 use rustc_hir::def::DefKind;
 use rustc_hir::def_id::DefId;
@@ -25,7 +24,7 @@ use crate::simplify::{UsedInStmtLocals, simplify_cfg};
 use crate::validate::validate_types;
 use crate::{PassPolicy, check_inline, util};
 
-pub(crate) mod cycle;
+pub(crate) mod order;
 
 const HISTORY_DEPTH_LIMIT: usize = 20;
 const TOP_DOWN_DEPTH_LIMIT: usize = 5;
@@ -608,7 +607,11 @@ fn try_inlining<'tcx, I: Inliner<'tcx>>(
     let callee_attrs = tcx.codegen_instance_attrs(callsite.callee.def);
     let callee_attrs = callee_attrs.as_ref();
     check_inline::is_inline_valid_on_fn(tcx, callsite.callee.def_id())?;
-    check_codegen_attributes(inliner, callsite, callee_attrs)?;
+    check_codegen_attributes(inliner, callee_attrs)?;
+    if !order::may_request(tcx, caller_body.source.instance, callsite.callee.def) {
+        return Err("callee does not rank below the caller in the MIR inlining order");
+    }
+    check_callee_is_exported(inliner, callsite)?;
 
     let terminator = caller_body[callsite.block].terminator.as_ref().unwrap();
     let TerminatorKind::Call { args, destination, .. } = &terminator.kind else { bug!() };
@@ -751,10 +754,6 @@ fn check_mir_is_available<'tcx, I: Inliner<'tcx>>(
             };
         }
 
-        // This cannot result in an immediate cycle since the callee MIR is a shim, which does
-        // not get any optimizations run on it. Any subsequent inlining may cause cycles, but we
-        // do not need to catch this here, we can wait until the inliner decides to continue
-        // inlining a second time.
         InstanceKind::Shim(ShimKind::VTable(_))
         | InstanceKind::Shim(ShimKind::Reify(..))
         | InstanceKind::Shim(ShimKind::FnPtr(..))
@@ -767,42 +766,14 @@ fn check_mir_is_available<'tcx, I: Inliner<'tcx>>(
         | InstanceKind::Shim(ShimKind::FnPtrFromPtr(..)) => return Ok(()),
     }
 
-    if inliner.tcx().is_constructor(callee_def_id) {
-        trace!("constructors always have MIR");
-        // Constructor functions cannot cause a query cycle.
-        return Ok(());
-    }
-
-    if let Some(callee_def_id) = callee_def_id.as_local()
-        && !inliner.tcx().is_lang_item(inliner.tcx().parent(caller_def_id), LangItem::FnOnce)
-    {
-        // If we know for sure that the function we're calling will itself try to
-        // call us, then we avoid inlining that function.
-        let Some(cyclic_callees) = inliner.tcx().mir_callgraph_cyclic(caller_def_id.expect_local())
-        else {
-            return Err("call graph cycle detection bailed due to recursion limit");
-        };
-        if cyclic_callees.contains(&callee_def_id) {
-            debug!("query cycle avoidance");
-            return Err("caller might be reachable from callee");
-        }
-
-        Ok(())
-    } else {
-        // This cannot result in an immediate cycle since the callee MIR is from another crate
-        // and is already optimized. Any subsequent inlining may cause cycles, but we do
-        // not need to catch this here, we can wait until the inliner decides to continue
-        // inlining a second time.
-        trace!("functions from other crates always have MIR");
-        Ok(())
-    }
+    // Whether requesting the callee's MIR could cycle is decided by `order::may_request`.
+    Ok(())
 }
 
 /// Returns an error if inlining is not possible based on codegen attributes alone. A success
 /// indicates that inlining decision should be based on other criteria.
 fn check_codegen_attributes<'tcx, I: Inliner<'tcx>>(
     inliner: &I,
-    callsite: &CallSite<'tcx>,
     callee_attrs: &CodegenFnAttrs,
 ) -> Result<(), &'static str> {
     let tcx = inliner.tcx();
@@ -815,13 +786,6 @@ fn check_codegen_attributes<'tcx, I: Inliner<'tcx>>(
     }
 
     inliner.check_codegen_attributes_extra(callee_attrs)?;
-
-    // Reachability pass defines which functions are eligible for inlining. Generally inlining
-    // other functions is incorrect because they could reference symbols that aren't exported.
-    let is_generic = callsite.callee.args.non_erasable_generics().next().is_some();
-    if !is_generic && !tcx.cross_crate_inlinable(callsite.callee.def_id()) {
-        return Err("not exported");
-    }
 
     let codegen_fn_attrs = tcx.codegen_fn_attrs(inliner.caller_def_id());
     if callee_attrs.sanitizers != codegen_fn_attrs.sanitizers {
@@ -848,6 +812,22 @@ fn check_codegen_attributes<'tcx, I: Inliner<'tcx>>(
         return Err("incompatible target features");
     }
 
+    Ok(())
+}
+
+/// Reachability pass defines which functions are eligible for inlining. Generally inlining
+/// other functions is incorrect because they could reference symbols that aren't exported.
+///
+/// `cross_crate_inlinable` may read the callee's optimized MIR, so this must come after
+/// `order::may_request`.
+fn check_callee_is_exported<'tcx, I: Inliner<'tcx>>(
+    inliner: &I,
+    callsite: &CallSite<'tcx>,
+) -> Result<(), &'static str> {
+    let is_generic = callsite.callee.args.non_erasable_generics().next().is_some();
+    if !is_generic && !inliner.tcx().cross_crate_inlinable(callsite.callee.def_id()) {
+        return Err("not exported");
+    }
     Ok(())
 }
 

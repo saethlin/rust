@@ -1314,18 +1314,21 @@ rustc_queries! {
         }
     }
 
-    /// Return the set of (transitive) callees that may result in a recursive call to `key`,
-    /// if we were able to walk all callees.
-    query mir_callgraph_cyclic(key: LocalDefId) -> Option<&'tcx UnordSet<LocalDefId>> {
-        desc {
-            "computing (transitive) callees of `{}` that may recurse",
-            tcx.def_path_str(key),
-        }
-        cache_on_disk
+    /// The height of each graph body in the condensation of the MIR inlining call graph. Its
+    /// readers depend on the whole order; it is hashed so that they stay green while it doesn't
+    /// change.
+    query mir_inliner_order(_: ()) -> &'tcx FxIndexMap<LocalDefId, usize> {
+        arena_cache
+        desc { "computing the MIR inlining order" }
     }
 
-    /// Obtain all the calls into other local functions
-    query mir_inliner_callees(key: ty::InstanceKind<'tcx>) -> &'tcx [(DefId, GenericArgs<'tcx>)] {
+    /// The unresolved direct calls of a body, before any optimization, and for local bodies the
+    /// few types of locals that the MIR inlining order needs (see `inline::order`). Local bodies
+    /// read these from `mir_promoted`, so they are forced before that MIR is stolen whenever the
+    /// MIR inlining order may be consulted.
+    query mir_inliner_callees(
+        key: ty::InstanceKind<'tcx>
+    ) -> (&'tcx [(DefId, GenericArgs<'tcx>)], &'tcx [Ty<'tcx>]) {
         desc {
             "computing all local function calls in `{}`",
             tcx.def_path_str(key.def_id()),

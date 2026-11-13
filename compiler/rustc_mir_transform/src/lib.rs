@@ -231,8 +231,8 @@ pub fn provide(providers: &mut Providers) {
         optimized_mir,
         check_liveness: liveness::check_liveness,
         is_mir_available,
-        mir_callgraph_cyclic: inline::cycle::mir_callgraph_cyclic,
-        mir_inliner_callees: inline::cycle::mir_inliner_callees,
+        mir_inliner_callees: inline::order::mir_inliner_callees,
+        mir_inliner_order: inline::order::mir_inliner_order,
         promoted_mir,
         deduced_param_attrs: deduce_param_attrs::deduced_param_attrs,
         coroutine_by_move_body_def_id: coroutine::coroutine_by_move_body_def_id,
@@ -555,14 +555,13 @@ fn mir_drops_elaborated_and_const_checked(tcx: TyCtxt<'_>, def: LocalDefId) -> &
         None
     };
 
-    let is_fn_like = tcx.def_kind(def).is_fn_like();
-    if is_fn_like {
-        // Do not compute the mir call graph without said call graph actually being used.
-        if pm::should_run_pass(&inline::Inline, &pm::PassCtx::for_body(tcx, def.to_def_id()))
-            || inline::ForceInline::should_run_pass_for_callee(tcx, def.to_def_id())
-        {
-            tcx.ensure_done().mir_inliner_callees(ty::InstanceKind::Item(def.to_def_id()));
-        }
+    // The MIR inlining order is computed from `mir_promoted`, which is stolen below. It needs every
+    // body, because any body may be the callee of one that runs the inliner.
+    if tcx.def_kind(def).is_fn_like()
+        && !tcx.is_coroutine(def.to_def_id())
+        && inline::order::order_may_be_used(tcx)
+    {
+        tcx.ensure_done().mir_inliner_callees(ty::InstanceKind::Item(def.to_def_id()));
     }
 
     tcx.ensure_done().check_liveness(def);
