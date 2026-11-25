@@ -48,6 +48,13 @@ pub trait TyDecoder<'tcx>:
     where
         F: FnOnce(&mut Self) -> Ty<'tcx>;
 
+    fn decode_inline<F>(&mut self, decode_via: F) -> Ty<'tcx>
+    where
+        F: FnOnce(&mut Self) -> Ty<'tcx>,
+    {
+        decode_via(self)
+    }
+
     fn with_position<F, R>(&mut self, pos: usize, f: F) -> R
     where
         F: FnOnce(&mut Self) -> R;
@@ -62,6 +69,22 @@ pub trait TyDecoder<'tcx>:
 pub trait EncodableWithShorthand<'tcx, E: TyEncoder<'tcx>>: Copy + Eq + Hash {
     type Variant: Encodable<E>;
     fn variant(&self) -> &Self::Variant;
+}
+
+pub(crate) fn shorthand_for_encoding(start: usize, end: usize) -> Option<usize> {
+    let shorthand = start + SHORTHAND_OFFSET;
+
+    // Get the number of bits that leb128 could fit
+    // in the same space as the fully encoded type.
+    let leb128_bits = (end - start) * 8;
+
+    // Check that the shorthand is a not longer than the
+    // full encoding itself, i.e., it's an obvious win.
+    if leb128_bits >= 64 || (shorthand as u64) < (1 << leb128_bits) {
+        Some(shorthand)
+    } else {
+        None
+    }
 }
 
 #[allow(rustc::usage_of_ty_tykind)]
@@ -102,22 +125,14 @@ where
 
     let start = encoder.position();
     variant.encode(encoder);
-    let len = encoder.position() - start;
+    let end = encoder.position();
 
     // The shorthand encoding uses the same usize as the
     // discriminant, with an offset so they can't conflict.
     let discriminant = intrinsics::discriminant_value(variant);
     assert!(SHORTHAND_OFFSET > discriminant as usize);
 
-    let shorthand = start + SHORTHAND_OFFSET;
-
-    // Get the number of bits that leb128 could fit
-    // in the same space as the fully encoded type.
-    let leb128_bits = len * 7;
-
-    // Check that the shorthand is a not longer than the
-    // full encoding itself, i.e., it's an obvious win.
-    if leb128_bits >= 64 || (shorthand as u64) < (1 << leb128_bits) {
+    if let Some(shorthand) = shorthand_for_encoding(start, end) {
         cache(encoder).insert(*value, shorthand);
     }
 }
@@ -197,8 +212,10 @@ impl<'tcx, D: TyDecoder<'tcx>> Decodable<D> for Ty<'tcx> {
                 decoder.with_position(shorthand, Ty::decode)
             })
         } else {
-            let tcx = decoder.interner();
-            tcx.mk_ty_from_kind(ty::TyKind::decode(decoder))
+            decoder.decode_inline(|decoder| {
+                let tcx = decoder.interner();
+                tcx.mk_ty_from_kind(ty::TyKind::decode(decoder))
+            })
         }
     }
 }

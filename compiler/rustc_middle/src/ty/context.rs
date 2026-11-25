@@ -869,6 +869,7 @@ impl<'tcx> TyCtxtFeed<'tcx, LocalDefId> {
 pub struct GlobalCaches<'tcx> {
     // Internal caches for metadata decoding. No need to track deps on this.
     pub ty_rcache: Lock<FxHashMap<ty::CReaderCacheKey, Ty<'tcx>>>,
+    pub incr_ty_rcache: Lock<FxHashMap<usize, (Ty<'tcx>, usize)>>,
 
     /// Caches the results of trait selection. This cache is used
     /// for things that do not have to do with the parameters in scope.

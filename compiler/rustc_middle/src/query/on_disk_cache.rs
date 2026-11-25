@@ -29,7 +29,9 @@ use crate::ich::SourceSpanCache;
 use crate::mir::interpret::{AllocDecodingSession, AllocDecodingState};
 use crate::mir::{self, interpret};
 use crate::mono::MonoItem;
-use crate::ty::codec::{RefDecodable, TyDecoder, TyEncoder, forward_all_decoder_methods_to};
+use crate::ty::codec::{
+    RefDecodable, TyDecoder, TyEncoder, forward_all_decoder_methods_to, shorthand_for_encoding,
+};
 use crate::ty::{self, Ty, TyCtxt};
 
 const TAG_FILE_FOOTER: u128 = 0xC0FFEE_C0FFEE_C0FFEE_C0FFEE_C0FFEE;
@@ -494,22 +496,34 @@ where
 impl<'a, 'tcx> TyDecoder<'tcx> for CacheDecoder<'a, 'tcx> {
     const CLEAR_CROSS_CRATE: bool = false;
 
+    fn decode_inline<F>(&mut self, decode_via: F) -> Ty<'tcx>
+    where
+        F: FnOnce(&mut Self) -> Ty<'tcx>,
+    {
+        let pos = self.opaque.position();
+        if let Some((ty, end)) = self.tcx.caches.incr_ty_rcache.borrow().get(&pos).copied() {
+            // Update our position in the decoder as if we decoded the Ty.
+            self.opaque = self.opaque.split_at(end);
+            ty
+        } else {
+            let ty = decode_via(self);
+            let end = self.opaque.position();
+            if shorthand_for_encoding(pos, end).is_some() {
+                self.tcx.caches.incr_ty_rcache.borrow_mut().insert_same(pos, (ty, end));
+            }
+            ty
+        }
+    }
+
     fn cached_ty_for_shorthand<F>(&mut self, shorthand: usize, or_insert_with: F) -> Ty<'tcx>
     where
         F: FnOnce(&mut Self) -> Ty<'tcx>,
     {
-        let tcx = self.tcx;
-
-        let cache_key = ty::CReaderCacheKey { cnum: None, pos: shorthand };
-
-        if let Some(&ty) = tcx.caches.ty_rcache.borrow().get(&cache_key) {
-            return ty;
+        if let Some(&(ty, _)) = self.tcx.caches.incr_ty_rcache.borrow().get(&shorthand) {
+            ty
+        } else {
+            or_insert_with(self)
         }
-
-        let ty = or_insert_with(self);
-        // This may overwrite the entry, but it should overwrite with the same value.
-        tcx.caches.ty_rcache.borrow_mut().insert_same(cache_key, ty);
-        ty
     }
 
     fn with_position<F, R>(&mut self, pos: usize, f: F) -> R
