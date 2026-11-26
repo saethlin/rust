@@ -498,7 +498,7 @@ impl<'a, 'tcx> TyDecoder<'tcx> for CacheDecoder<'a, 'tcx> {
 
     fn decode_inline<F>(&mut self, decode_via: F) -> Ty<'tcx>
     where
-        F: FnOnce(&mut Self) -> Ty<'tcx>,
+        F: FnOnce(&mut Self) -> Ty<'tcx>
     {
         let pos = self.opaque.position();
         if let Some((ty, end)) = self.tcx.caches.incr_ty_rcache.borrow().get(&pos).copied() {
@@ -515,14 +515,16 @@ impl<'a, 'tcx> TyDecoder<'tcx> for CacheDecoder<'a, 'tcx> {
         }
     }
 
-    fn cached_ty_for_shorthand<F>(&mut self, shorthand: usize, or_insert_with: F) -> Ty<'tcx>
+    fn cached_ty_for_shorthand<F>(&mut self, start: usize, or_insert_with: F) -> Ty<'tcx>
     where
-        F: FnOnce(&mut Self) -> Ty<'tcx>,
+        F: FnOnce(&mut Self) -> (Ty<'tcx>, usize)
     {
-        if let Some(&(ty, _)) = self.tcx.caches.incr_ty_rcache.borrow().get(&shorthand) {
+        if let Some(&(ty, _)) = self.tcx.caches.incr_ty_rcache.borrow().get(&start) {
             ty
         } else {
-            or_insert_with(self)
+            let (ty, end) = or_insert_with(self);
+            self.tcx.caches.incr_ty_rcache.borrow_mut().insert_same(start, (ty, end));
+            ty
         }
     }
 

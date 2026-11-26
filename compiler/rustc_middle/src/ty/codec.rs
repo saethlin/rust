@@ -46,11 +46,11 @@ pub trait TyDecoder<'tcx>:
 
     fn cached_ty_for_shorthand<F>(&mut self, shorthand: usize, or_insert_with: F) -> Ty<'tcx>
     where
-        F: FnOnce(&mut Self) -> Ty<'tcx>;
+        F: FnOnce(&mut Self) -> (Ty<'tcx>, usize);
 
     fn decode_inline<F>(&mut self, decode_via: F) -> Ty<'tcx>
     where
-        F: FnOnce(&mut Self) -> Ty<'tcx>,
+        F: FnOnce(&mut Self) -> Ty<'tcx>
     {
         decode_via(self)
     }
@@ -204,12 +204,15 @@ impl<'tcx, D: TyDecoder<'tcx>> Decodable<D> for Ty<'tcx> {
     fn decode(decoder: &mut D) -> Ty<'tcx> {
         // Handle shorthands first, if we have a usize > 0x80.
         if decoder.positioned_at_shorthand() {
-            let pos = decoder.read_usize();
-            assert!(pos >= SHORTHAND_OFFSET);
-            let shorthand = pos - SHORTHAND_OFFSET;
+            let shorthand = decoder.read_usize();
+            assert!(shorthand >= SHORTHAND_OFFSET);
+            let start = shorthand - SHORTHAND_OFFSET;
 
-            decoder.cached_ty_for_shorthand(shorthand, |decoder| {
-                decoder.with_position(shorthand, Ty::decode)
+            decoder.cached_ty_for_shorthand(start, |decoder| {
+                decoder.with_position(start, |decoder| {
+                    let ty = Ty::decode(decoder);
+                    (ty, decoder.position())
+                })
             })
         } else {
             decoder.decode_inline(|decoder| {
